@@ -1,0 +1,3 @@
+name: <+stage.variables.resourceNamePrefix>
+replicas: 1
+image: nginx

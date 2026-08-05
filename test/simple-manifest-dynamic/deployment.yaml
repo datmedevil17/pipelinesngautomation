@@ -1,0 +1,23 @@
+# K8S Deployments example
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Values.name}}-deployment
+  labels:
+    app: {{.Values.name}}
+    type: front-end
+spec:
+  template:
+    metadata:
+      name: {{.Values.name}}-pod
+      labels:
+        app: {{.Values.name}}
+        type: front-end
+    spec:
+      containers:
+        - name: {{.Values.image}}-container
+          image: {{.Values.image}}
+  replicas: {{.Values.replicas}}
+  selector:
+    matchLabels:
+      type: front-end
