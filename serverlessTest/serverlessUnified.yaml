@@ -1,0 +1,18 @@
+service: {{.Values.serviceName}}
+frameworkVersion: '3.40.0'
+
+provider:
+  name: aws
+  runtime: java21
+
+package:
+  artifact: <+artifact.filePath>
+
+functions:
+  currentTime:
+    handler: com.serverless.Handler
+    # image: <+artifact.image>
+    events:
+      - httpApi:
+          path: /time
+          method: get
