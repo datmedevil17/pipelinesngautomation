@@ -3,15 +3,14 @@ frameworkVersion: '3.40.0'
 
 provider:
   name: aws
-  runtime: java21
-
-package:
-  artifact: <+artifact.filePath>
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
 
 functions:
   currentTime:
-    handler: com.serverless.Handler
-    # image: <+artifact.image>
+    image: appimage
     events:
       - httpApi:
           path: /time
