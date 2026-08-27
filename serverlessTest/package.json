@@ -1,0 +1,6 @@
+{
+    "devDependencies": {
+      "serverless-manifest-plugin": "^1.0.9"
+    }
+  }
+  
