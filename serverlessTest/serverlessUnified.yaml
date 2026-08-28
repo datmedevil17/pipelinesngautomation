@@ -6,7 +6,7 @@ provider:
   ecr:
     images:
       appimage:
-        uri: 479370281431.dkr.ecr.us-east-1.amazonaws.com/todolist:latest
+        uri: <+artifact.image>
 
 functions:
   currentTime:
