@@ -1,0 +1,23 @@
+# LEAK BAIT: contains a Harness expression, so the fetch plugin returns this
+# path in outputVars. Pre-fix it got unioned into manifests.overrides and then
+# passed to the k8s-template plugin as a VALUES file. Post-fix it must appear
+# only in toTemplate/toRender.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <+service.name>-deploy
+  labels:
+    tier: {{.Values.tier}}
+spec:
+  replicas: {{.Values.replicaCount}}
+  selector:
+    matchLabels:
+      app: {{.Values.appName}}
+  template:
+    metadata:
+      labels:
+        app: {{.Values.appName}}
+    spec:
+      containers:
+        - name: app
+          image: {{.Values.image}}

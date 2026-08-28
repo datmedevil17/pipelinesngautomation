@@ -1,0 +1,24 @@
+# LEAK BAIT: this file contains a Harness expression, so the fetch plugin
+# returns its path in outputVars. Pre-fix that path got unioned into
+# manifests.overrides and then handed to `helm template -f`, which is the
+# CDS-131003 bug. Post-fix it must only appear in toTemplate/toRender.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <+service.name>-deploy
+  labels:
+    appName: {{ .Values.appName }}
+    tier: {{ .Values.tier }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.appName }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.appName }}
+    spec:
+      containers:
+        - name: app
+          image: {{ .Values.image }}

@@ -1,0 +1,3 @@
+# DECLARED FIRST in the service `values:` block.
+replicaCount: 1
+tier: from-values-a

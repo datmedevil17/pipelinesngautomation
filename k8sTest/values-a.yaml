@@ -1,0 +1,7 @@
+# DECLARED FIRST in the service `values:` block.
+# appName/image/tier are set ONLY here -> if they survive, the merge is a
+# real merge and not a replace.
+appName: cds131003-k8s
+image: nginx:1.25
+tier: from-values-a
+replicaCount: 1
