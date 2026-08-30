@@ -1,0 +1,50 @@
+pipeline:
+  stages:
+  - name: Stage
+    id: stage
+    environment:
+      id: ServerlessEnv_tNg4N
+      deploy-to: infra_deBLD
+    steps:
+    - id: seed_and_check_cwd
+      name: Seed Manifest and Check CWD
+      run:
+        shell: sh
+        script: |-
+          echo "HARNESS_WORKSPACE => [$HARNESS_WORKSPACE]"
+          echo "PWD (actual cwd)  => [$(pwd)]"
+          mkdir -p "$HARNESS_WORKSPACE/manifests"
+          cat > "$HARNESS_WORKSPACE/manifests/cm.yaml" <<'EOF'
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: workspace-fix-check
+          data:
+            hello: world
+          EOF
+          echo "seeded: $HARNESS_WORKSPACE/manifests/cm.yaml"
+    - id: run_plugin_old
+      name: Run k8s-apply (old image, no fix)
+      run:
+        shell: sh
+        script: |-
+          set -e
+          export PLUGIN_MANIFEST_PATH='["manifests"]'
+          export PLUGIN_HARNESS_WORKSPACE="$HARNESS_WORKSPACE"
+          export PLUGIN_KUBECONFIG_PATH="$KUBECONFIG"
+          export PLUGIN_NAMESPACE=default
+          export PLUGIN_EXECUTE_DRY_RUN=true
+          export PLUGIN_PRINT_MANIFESTS=true
+          export PLUGIN_LOG_LEVEL=debug
+          echo "PWD before plugin run => [$(pwd)]"
+
+          # Extract the plugin binary from the docker image without running it as root,
+          # so it executes under the delegate's own cwd (not the container's cwd).
+          cid=$(docker create harnessdev/k8s-apply:0.0.2)
+          docker cp "$cid:/bin/plugin" ./plugin-old
+          docker rm "$cid" > /dev/null
+          chmod +x ./plugin-old
+
+          ./plugin-old
+    runtime: shell
+    timeout: 10m

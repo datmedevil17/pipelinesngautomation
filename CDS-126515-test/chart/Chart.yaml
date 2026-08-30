@@ -1,0 +1,4 @@
+apiVersion: v2
+name: cds126515-test
+description: Minimal chart for testing optionalValuesYaml on the Unified/V1 stack
+version: 0.1.0

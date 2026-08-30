@@ -1,0 +1,27 @@
+# CDS-131005 REGRESSION fixture -- the "no default values file" case.
+#
+# This folder deliberately has NO values.yaml / values.yml. Most existing customer
+# services look exactly like this, so the default-values lookup MUST treat a missing
+# default file as "nothing to prepend" and not as an error. If this pipeline fails,
+# CDS-131005 has broken every service that does not ship a default values file.
+#
+# Every templated field here comes from the DECLARED file only.
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.40.0'
+
+provider:
+  name: aws
+  region: {{ .Values.region }}
+  stage: {{ .Values.stage }}
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
+
+functions:
+  currentTime:
+    image: appimage
+    events:
+      - httpApi:
+          path: /time
+          method: get

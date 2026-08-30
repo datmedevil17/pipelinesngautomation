@@ -1,0 +1,26 @@
+# DEFAULT values file. It is found by FILENAME CONVENTION because it sits next to the
+# manifest -- it is NOT declared in the service `values:` block, and it must therefore
+# NEVER appear in serviceOutput.manifests.overrides.
+#
+# This is the BASE layer: it is applied FIRST and every declared values file layers on
+# top of it. That is what CDS-131005 adds.
+#
+# `serviceName` and `region` are set ONLY here -> if they survive into the rendered
+# manifest, the default file was read. If rendering fails on an unresolved
+# {{ .Values.serviceName }}, the default file was NOT read and the fix is not working.
+serviceName: cds131005-default
+region: us-east-1
+
+# these two are ALSO declared, so declared must win over them
+stage: dev
+memorySize: 1024
+
+# STAGE 1 BAIT. The fetch stage (harness-rendering) only returns a file's content when
+# the file contains a Harness expression -- that is its whole job, handing the manager
+# the bodies it must resolve. This line makes values.yaml qualify, so the pipeline can
+# assert that the default file reached the fetch stage at all, which only happens if
+# values.yaml is listed in the render template's PLUGIN_FILES.
+#
+# `owner` is not consumed by the manifest, so it changes nothing about rendering. If it
+# is still literally `<+service.name>` after the run, PLUGIN_FILES is missing values.yaml.
+owner: <+service.name>

@@ -1,0 +1,4 @@
+# DECLARED SECOND in the service `values:` block. Must appear in manifests.overrides.
+# go-template applies values files in order, so this memorySize must WIN over both
+# values-a.yaml (512) and the default values.yaml (1024).
+memorySize: 256

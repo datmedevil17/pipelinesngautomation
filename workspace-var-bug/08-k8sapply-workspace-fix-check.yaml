@@ -1,0 +1,24 @@
+pipeline:
+  stages:
+  - name: Stage
+    id: stage
+    service: sls_s3_s3_enma
+    environment:
+      id: ServerlessEnv_tNg4N
+      deploy-to: infra_deBLD
+    steps:
+    - id: check_inputs
+      run:
+        container:
+          image: library/alpine
+          connector: account.harnessImage
+        shell: sh
+        script: |-
+          echo "runtime.workspace   => [${{runtime.workspace}}]"
+          echo "manifest_id default => [primary]"
+          echo "HARNESS_WORKSPACE   => [$HARNESS_WORKSPACE]"
+    runtime:
+      kubernetes:
+        namespace: default
+        connector: connector_K8sCluster_local
+    timeout: 10m

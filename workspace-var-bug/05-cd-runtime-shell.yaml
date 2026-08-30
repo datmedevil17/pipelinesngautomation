@@ -1,0 +1,16 @@
+pipeline:
+  stages:
+  - name: Stage
+    id: stage
+    environment:
+      id: ServerlessEnv_tNg4N
+      deploy-to: infra_deBLD
+    steps:
+    - id: check_ws
+      run:
+        shell: sh
+        script: |-
+          echo "HARNESS_WORKSPACE=[$HARNESS_WORKSPACE]"
+          echo "PWD=$(pwd)"
+    runtime: shell
+    timeout: 10m

@@ -1,0 +1,34 @@
+# CDS-131005 fixture -- default values file discovery for the Serverless swimlane.
+#
+# Every templated field below is deliberately sourced from a DIFFERENT layer, so the
+# rendered manifest alone proves the whole precedence contract:
+#
+#   serviceName  -> set ONLY in values.yaml (the undeclared default)  => default WAS read
+#   region       -> set ONLY in values.yaml                          => default WAS read
+#   stage        -> in values.yaml AND values-a.yaml                 => declared BEATS default
+#   memorySize   -> in values.yaml AND values-a AND values-b         => last declared WINS
+#
+# Note the file is named serverlessUnified.yaml, not serverless.yml: it reaches the
+# plugins through the manifest's configOverridePath input, which is the custom-path
+# case. The default values lookup keys off the manifest's DIRECTORY, so a custom
+# manifest filename must not stop values.yaml from being found.
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.40.0'
+
+provider:
+  name: aws
+  region: {{ .Values.region }}
+  stage: {{ .Values.stage }}
+  memorySize: {{ .Values.memorySize }}
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
+
+functions:
+  currentTime:
+    image: appimage
+    events:
+      - httpApi:
+          path: /time
+          method: get

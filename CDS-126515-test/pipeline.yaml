@@ -1,0 +1,22 @@
+version: 1
+kind: pipeline
+name: cds126515_helm_optional_values_test
+identifier: cds126515_helm_optional_values_test
+spec:
+  stages:
+    - id: deploy
+      name: deploy
+      type: deployment
+      timeout: 10m
+      spec:
+        service:
+          serviceRef: cds126515_helm_optional_values_test
+        environment:
+          environmentRef: <+input>
+          infrastructureDefinitions: <+input>
+        steps:
+          - id: helmDeploy
+            name: Helm Deploy
+            type: HelmDeploy
+            timeout: 10m
+            spec: {}
