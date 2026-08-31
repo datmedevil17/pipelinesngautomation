@@ -1,0 +1,7 @@
+service:
+  name: service_kubernetes_58f4
+  identifier: service_kubernetes_58f4
+  tags: {}
+  serviceDefinition:
+    type: Kubernetes
+    spec: {}
