@@ -1,0 +1,20 @@
+# CDS-131005 probe: this file is NEVER declared in the service.
+# k8s-template discovers it by filename convention at <manifestPath>/values.yaml
+# and PREPENDS it, so it is the BASE layer.
+
+# --- ONLY-IN-DEFAULT keys: these exist in no other values file. ---
+# If they render, the default file was discovered and applied.
+appName: cds131005-k8s-default
+replicaCount: 3
+image: nginx:1.25
+
+# --- OVERRIDDEN keys: declared files must win over these. ---
+# If these values survive, precedence is inverted (append instead of prepend,
+# or the file leaked into overrides and got applied a second time, later).
+tier: default-tier
+port: 1024
+
+# --- CDS-131003 bait: a Harness expression. ---
+# The default file legitimately belongs in `toTemplate` (manager must resolve
+# this), but it must NOT appear in `serviceOutput.manifests.overrides`.
+owner: <+service.name>
