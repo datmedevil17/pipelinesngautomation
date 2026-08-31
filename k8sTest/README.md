@@ -30,8 +30,8 @@ those keys exist in NO other values file.
 
 `serviceOutput.manifests.overrides` must contain EXACTLY the two declared files:
 
-    /harness/m2/k8sValues/values-a.yaml
-    /harness/m3/k8sValues/values-b.yaml
+    /harness/m1/k8sValues/values-a.yaml
+    /harness/m1/k8sValues/values-b.yaml
 
 It must NOT contain `k8sTest/values.yaml` or `k8sTest/templates/values.yaml`,
 even though the fetch plugin reads and outputs both.
