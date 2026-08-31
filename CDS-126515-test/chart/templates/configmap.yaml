@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cds126515-test-cm
-data:
-  message: {{ .Values.message | quote }}

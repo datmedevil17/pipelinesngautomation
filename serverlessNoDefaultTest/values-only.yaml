@@ -1,6 +1,0 @@
-# The ONLY values file for this manifest, and it is DECLARED in the service.
-# Named values-only.yaml, NOT values.yaml, so it cannot be picked up by the default
-# filename convention -- otherwise this folder would stop testing the missing-default case.
-serviceName: cds131005-nodefault
-region: us-east-1
-stage: dev

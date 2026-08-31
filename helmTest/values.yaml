@@ -1,9 +1,0 @@
-# CHART DEFAULT values file. NOT declared in the service `values:` block.
-# helm reads this natively from the chart dir, so it must NOT appear in
-# serviceOutput.manifests.overrides. It is the base layer.
-#
-# `appName` is set ONLY here -> if it survives into the rendered manifest,
-# the chart default was read.
-appName: from-chart-default
-replicaCount: 99
-image: nginx:1.25

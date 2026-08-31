@@ -1,3 +1,0 @@
-# DECLARED SECOND in the service `values:` block.
-# helm applies -f in order, so this replicaCount must WIN over values-a.
-replicaCount: 3
