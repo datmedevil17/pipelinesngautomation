@@ -13,7 +13,7 @@
 # case. The default values lookup keys off the manifest's DIRECTORY, so a custom
 # manifest filename must not stop values.yaml from being found.
 service: {{ .Values.serviceName }}
-frameworkVersion: '3.40.0'
+frameworkVersion: '3.39.0'
 
 provider:
   name: aws
