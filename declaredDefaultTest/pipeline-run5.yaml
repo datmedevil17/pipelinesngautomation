@@ -7,14 +7,45 @@
 #                       declaredDefaultTest/serverless/values-a.yaml
 #                       declaredDefaultTest/serverless/values-b.yaml
 #
-# MANUAL CHECK, this run only. The dedupe is not observable in the render (see the
-# comment at the top of values.yaml). After the run, open the Templating step's log
-# and confirm exactly one line reading:
+# WHAT TO EXPECT -- read this before calling anything a failure.
 #
-#   Default values file "..." is already in the values path list; not adding it twice
+# Every assert below is expected to PASS, and the dedupe is expected NOT to fire.
+# Those two statements are not in conflict; here is why.
 #
-# Two occurrences of the same path in "Values file paths after adding defaults" means
-# the dedupe failed even though every assert below still passes.
+# Run 3 showed that Harness clones the repo ONCE PER manifest/values entry, into its
+# own directory:
+#
+#   toRender : ["/harness/m2/.../values-a.yaml",
+#               "/harness/m3/.../values-b.yaml",
+#               "/harness/m1/.../serverlessUnified.yaml"]
+#
+# So in this run the DISCOVERED default is
+#     /harness/m1/declaredDefaultTest/serverless/values.yaml    (from ManifestPath)
+# while the DECLARED copy of the same repo file arrives as
+#     /harness/m2/declaredDefaultTest/serverless/values.yaml    (its own clone)
+#
+# PrependDefaultValueFilePaths dedupes on canonicalPath(), which is Abs + EvalSymlinks.
+# m1 and m2 are two real, separate directories, so the two spellings never collapse to
+# the same string and the dedupe CANNOT fire. The default is prepended anyway, and the
+# same content is applied twice.
+#
+# The render is unaffected -- values-a and values-b are applied last either way -- so
+# every assert still passes. The overrides step below prints the two clone dirs so this
+# run captures the evidence itself.
+#
+# MANUAL CHECK. Open the Templating step's log and look at:
+#
+#   "Values file paths after adding defaults:"
+#
+# Expected (dedupe did not fire): values.yaml listed TWICE, under two different
+# /harness/mN/ prefixes, and NO line saying "not adding it twice".
+#
+# If instead you DO see "already in the values path list; not adding it twice", then
+# the clones collapsed (single clone, or symlinked) and the dedupe works in this
+# environment -- record which it was.
+#
+# Either way this is a FINDING about where the dedupe is effective, not a defect in
+# CDS-131005: the merge result is correct in both cases.
 pipeline:
   clone:
     disabled: true
@@ -61,16 +92,39 @@ pipeline:
               esac
               echo
               echo "===== CDS-131005: the declared default must appear exactly once ====="
-              # 'values-a.yaml' and 'values-b.yaml' do not contain the substring
-              # 'values.yaml', so this counts only the default itself.
+              # This checks the SERVICE CONFIG, not the dedupe: overrides is the service
+              # step's output and holds the declared list only, before any default is
+              # prepended. 'values-a.yaml' and 'values-b.yaml' do not contain the
+              # substring 'values.yaml', so this counts only the default itself.
               n=$(printf '%s' "$OVERRIDES" | grep -o 'values\.yaml' | wc -l | tr -d ' ')
               if [ "$n" = "1" ]; then
-                echo "  PASS  values.yaml appears once in overrides"
+                echo "  PASS  values.yaml is declared exactly once"
               else
-                echo "  FAIL  values.yaml appears $n times in overrides (want 1)"; fail=1
+                echo "  FAIL  values.yaml declared $n times in overrides (want 1)"; fail=1
               fi
-              echo "  NOTE  the dedupe itself is only visible in the Templating step log;"
-              echo "        look for 'not adding it twice'. See this pipeline's header."
+              echo
+              echo "===== can the dedupe fire at all? (clone-dir evidence) ====="
+              # The dedupe compares canonicalPath(discovered) with canonicalPath(declared).
+              # Harness clones the repo once per entry, so those two can live under
+              # different /harness/mN/ prefixes and never compare equal.
+              mdir=$(printf '%s' "$TO_RENDER" | tr ',' '\n' | tr -d '"[]' | grep 'serverlessUnified.yaml' | head -1 | sed 's#^/harness/\([^/]*\)/.*#\1#')
+              vdir=$(printf '%s' "$OVERRIDES" | tr ',' '\n' | tr -d '"[]' | grep '/values\.yaml$' | head -1 | sed 's#^/harness/\([^/]*\)/.*#\1#')
+              echo "  manifest clone dir           : /harness/$mdir"
+              echo "  declared values.yaml clone   : /harness/$vdir"
+              if [ -z "$mdir" ] || [ -z "$vdir" ]; then
+                echo "  INFO  could not determine both clone dirs -- check the raw lists above"
+              elif [ "$mdir" = "$vdir" ]; then
+                echo "  INFO  SAME clone. canonicalPath() will match, so the dedupe CAN fire."
+                echo "        Expect 'not adding it twice' in the Templating log."
+              else
+                echo "  INFO  DIFFERENT clones. The discovered default is under /harness/$mdir"
+                echo "        and the declared copy under /harness/$vdir, so canonicalPath()"
+                echo "        compares two distinct absolute paths and the dedupe CANNOT fire."
+                echo "        Expect values.yaml listed TWICE in the Templating log and NO"
+                echo "        'not adding it twice' line. This is a FINDING, not a failure:"
+                echo "        the merge result is identical either way, which is why every"
+                echo "        assert in the next step still passes."
+              fi
               echo
               echo "===== the fixture on disk ====="
               for d in $(find /harness -type d -path '*declaredDefaultTest/serverless' 2>/dev/null | sort); do

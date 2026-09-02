@@ -1,0 +1,8 @@
+# CDS-131003 canary. Helm natively reads ONLY values.yaml from a chart dir, so
+# this file can never be applied by convention. It reaches the renderer only if
+# something puts it on the `-f` list -- i.e. only if the fetch plugin's output
+# was unioned into `serviceOutput.manifests.overrides`.
+#
+# Expected render: leak-canary -> <no value>
+# If it renders LEAK-DETECTED, the CDS-131003 leak is present.
+leakCanary: LEAK-DETECTED

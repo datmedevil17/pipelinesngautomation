@@ -1,0 +1,24 @@
+# The chart's OWN values.yaml. Helm reads this natively -- unlike Serverless, this
+# is not "discovery by convention", so CDS-131005 is not what this fixture tests.
+#
+# What it DOES test is CDS-131003: this file is read by the fetch plugin (it has to
+# be, because of the Harness expression below), and the old RenderingStep unioned
+# every fetched path into `serviceOutput.manifests.overrides`. Both k8sTemplateAction
+# and k8sHelmTemplateAction default their `values` input to ${{manifests.overrides}},
+# so a leak here reaches the renderer directly.
+
+# --- ONLY-IN-CHART keys: present in no declared values file. ---
+# If these render, the chart's own values were applied.
+appName: cds131003-helm
+replicaCount: 3
+image: nginx:1.25
+
+# --- OVERRIDDEN keys: the declared files must win. ---
+# If these survive, precedence is inverted or a stray copy was applied last.
+tier: default-tier
+port: 1024
+
+# --- CDS-131003 bait: a Harness expression. ---
+# This file legitimately belongs in `toTemplate` -- the manager must resolve this
+# before helm runs -- but it must NOT appear in `overrides`.
+owner: <+service.name>

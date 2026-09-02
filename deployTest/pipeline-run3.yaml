@@ -156,7 +156,7 @@ pipeline:
               chk "region (default-only)"  "us-east-1"                    "$(val region)"
               chk "stage (declared beats)" "qa"                           "$(val stage)"
               chk "memorySize (last wins)" "256"                          "$(val memorySize)"
-              chk "frameworkVersion (sanity)" "3.39.0"                       "$(val frameworkVersion)"
+              chk "frameworkVersion (sanity)" "3.40.0"                       "$(val frameworkVersion)"
               echo
               if grep -q '<no value>' "$m"; then
                 echo "  FAIL  unresolved <no value> -- a key was templated but never supplied:"

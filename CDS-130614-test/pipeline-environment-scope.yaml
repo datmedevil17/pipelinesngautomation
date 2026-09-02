@@ -1,0 +1,53 @@
+# CDS-130614 repro -- Unified (v1) CD has no per-environment failure strategy.
+#
+# Same idea as pipeline-service-scope.yaml, but for the ENVIRONMENT/infra
+# side: `environment.on-failure` doesn't exist in the v1 schema today, and
+# even the stage-level strategy isn't wired onto the CD-infra plan node, so
+# an infra resolution failure just fails the stage outright.
+#
+# This pipeline points `environment.deploy-to` at an infra that does not
+# exist, so the CD-infra node fails. It sets:
+#   - environment.on-failure -> stage-rollback (trigger a stage rollback)
+#   - stage-level on-failure -> fail           (mark the execution as FAILED)
+# (`stage-rollback` is used here, not `success`, because only Abort/
+# MarkAsFailure/PipelineRollback/StageRollback/Retry are allowed at
+# environment scope -- see the allow-list in UnifiedFailureStrategyHelperV1.)
+#
+# BEFORE THE FIX: `environment.on-failure` is rejected by schema validation,
+#   or (schema-fixed / plan-creator not wired) accepted but has no effect --
+#   the stage just fails, neither strategy is honored.
+# AFTER THE FIX: the environment-scoped strategy (stage-rollback) wins over
+#   the stage-level one (fail) -- you should see a rollback execution kick
+#   in instead of a plain stage failure.
+#
+# BEFORE RUNNING
+#   Replace <YOUR_SERVICE_ID> with any real, resolvable service -- it is
+#   never reached if the infra node fails first, but must be present for the
+#   pipeline to pass schema validation.
+
+pipeline:
+  stages:
+    - name: CDS-130614 environment scope repro
+      id: cds130614env
+      on-failure:
+        - errors: [all]
+          action: fail   # stage-level fallback: should NOT win if the fix is in
+      service:
+        id: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: this_infra_id_does_not_exist_cds130614
+        on-failure:
+          - errors: [all]
+            action: stage-rollback   # environment-level override: SHOULD win if the fix is in
+      steps:
+        - name: should never run
+          id: shouldneverrun
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "If you see this step execute, the CD-infra node did NOT fail as expected -- fix the infra id first."
+              exit 1

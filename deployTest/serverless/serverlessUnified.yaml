@@ -4,8 +4,8 @@
 # Run 3 hands it to the real Serverless CLI, so a manifest that renders correctly
 # but is not actually valid serverless YAML fails here and nowhere else.
 #
-# frameworkVersion is 3.39.0 to match serverlessDeployStep's own serverless_version
-# default, so a version mismatch cannot be confused with a values-discovery failure.
+# frameworkVersion is pinned to the same value noBaitTest uses so a version mismatch
+# cannot be confused with a values-discovery failure.
 service: {{ .Values.serviceName }}
 frameworkVersion: '3.40.0'
 

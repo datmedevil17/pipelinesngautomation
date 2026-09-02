@@ -1,0 +1,486 @@
+# CDS-131003 cross-swimlane smoke test -- Kubernetes + Helm.
+#
+# WHY THIS EXISTS
+#
+# The CDS-131003 fix is one removed line in RenderingStep.saveRenderingStepOutput:
+#
+#   manifests.put(OVERRIDES, mergePathsWithManifestOutput(manifests, OVERRIDES, fetchedPaths));
+#
+# That method is manifest-type AGNOSTIC. Every templating swimlane consumes
+# `serviceOutput.manifests.overrides`:
+#
+#   k8s.yaml        -> PLUGIN_VALUES_PATH        kustomize.yaml  -> PLUGIN_PATCHES_PATH
+#   helm-chart.yaml -> PLUGIN_VALUES_PATH        openshift.yaml  -> PLUGIN_PARAMS_PATH
+#   serverless.yaml -> PLUGIN_VALUES_PATH        aws-sam.yaml    -> PLUGIN_VALUES_PATH
+#
+# and k8sTemplateAction / k8sHelmTemplateAction both DEFAULT their `values`
+# input to ${{manifests.overrides}}. So the two swimlanes here are the cheapest
+# proof that the change did not break anything outside Serverless.
+#
+# CDS-131005 is NOT under test in this pipeline -- that ticket adds a new Go
+# module with zero importers and touches only serverless-template/plugin.
+#
+# WHAT WOULD A REGRESSION LOOK LIKE
+#
+# The removed merge was a UNION, not a prune (RenderingStepUtils:56-67 is a
+# LinkedHashSet + addAll). So a regression cannot make `overrides` SHORTER --
+# it can only put files back in that do not belong. Two consequences:
+#
+#   1. the `leak-canary` / `templates-dir-default` labels flip from
+#      `<no value>` to `LEAK-DETECTED`, and
+#   2. because the union APPENDED fetched paths after the declared ones, the
+#      leaked default lands LAST on the -f list and WINS -- so `tier` flips to
+#      `default-tier` and `containerPort` to `1024`.
+#
+# Both stages assert both.
+#
+# STEP CHOICE -- read before swapping these out.
+#
+# These stages deliberately use k8sTemplateAction / k8sHelmTemplateAction and
+# NOT k8sDryRunStep. k8sDryRunStep 1.1.1 does `uses: k8sApplyAction` UNPINNED,
+# and the account's stable pointer for k8sApplyAction currently resolves to
+# 1.0.11, which does not exist on main (a `testb` branch push moved it). That
+# is an unrelated breakage; routing around it keeps a red run meaningful.
+#
+# The Action templates also RENDER WITHOUT DEPLOYING, so no workload is created
+# and no cluster state is touched.
+#
+# ---------------------------------------------------------------------------
+# SERVICE CONFIGURATION
+# ---------------------------------------------------------------------------
+#
+# Stage 1 -- service `service_kubernetes_91ad` (k8s manifest type):
+#   paths:       k8sTest
+#   valuesPaths: k8sValues/values-a.yaml
+#                k8sValues/values-b.yaml
+#   Do NOT declare k8sTest/values.yaml -- it must stay undeclared.
+#
+# Stage 2 -- NEW service, manifest type `helm-chart`:
+#   paths:       helmTest/chart
+#   valuesPaths: helmTest/helmValues/values-a.yaml
+#                helmTest/helmValues/values-b.yaml
+#   Do NOT declare helmTest/chart/values.yaml or values-leak.yaml.
+#
+# Both point at the same test-test repo/connector as the serverless runs.
+# Replace every <YOUR_...> placeholder below.
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+
+    # =======================================================================
+    # Stage 1 -- Kubernetes
+    # =======================================================================
+    - name: Kubernetes
+      id: kubernetes
+      service: service_kubernetes_91ad
+      environment:
+        id: <YOUR_K8S_ENV_ID>
+        deploy-to: <YOUR_K8S_INFRA_ID>
+      steps:
+
+        - name: CDS-131003 overrides
+          id: k8soverrides
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+            script: |-
+              set -u
+              fail=0
+              echo "overrides  : $OVERRIDES"
+              echo "toTemplate : $TO_TEMPLATE"
+              echo
+              echo "===== overrides must hold ONLY the declared values files ====="
+              for f in values-a.yaml values-b.yaml; do
+                case "$OVERRIDES" in
+                  *"$f"*) echo "  PASS  declared $f is in overrides" ;;
+                  *)      echo "  FAIL  declared $f MISSING from overrides"; fail=1 ;;
+                esac
+              done
+              # values-a.yaml / values-b.yaml do not contain the substring
+              # 'values.yaml', so this matches only the default itself.
+              case "$OVERRIDES" in
+                *k8sTest/values.yaml*|*templates/values.yaml*)
+                  echo "  FAIL  a DEFAULT values file leaked into overrides"; fail=1 ;;
+                *)
+                  echo "  PASS  no default values file in overrides" ;;
+              esac
+              case "$OVERRIDES" in
+                *deployment.yaml*)
+                  echo "  FAIL  a MANIFEST leaked into overrides"; fail=1 ;;
+                *)
+                  echo "  PASS  no manifest in overrides" ;;
+              esac
+              echo
+              echo "===== toTemplate must still carry the default (it has an expression) ====="
+              # This is the other half of the fix: excluding the default from
+              # `overrides` must not drop it from `toTemplate`, or owner would
+              # never resolve.
+              case "$TO_TEMPLATE" in
+                *k8sTest/values.yaml*)
+                  echo "  PASS  the default is in toTemplate" ;;
+                *)
+                  echo "  INFO  the default is NOT in toTemplate -- expect owner to"
+                  echo "        render as the literal expression in the next step" ;;
+              esac
+              echo
+              echo "===== the fixture on disk ====="
+              for d in $(find /harness -type d -name k8sTest 2>/dev/null | sort); do
+                echo "  $d"
+                find "$d" -type f | sed "s#^#    #"
+              done
+              echo
+              if [ $fail -eq 0 ]; then echo "RESULT: PASS"; else echo "RESULT: FAIL"; fi
+              exit $fail
+
+        # LOAD-BEARING. This is the step that consumes runtime.manifestPath, so
+        # the injected Rendering and Templating steps hang off it. An assert
+        # placed before it reads the raw git clone and everything fails while
+        # nothing is wrong.
+        #
+        # `values` is left at its default (${{manifests.overrides}}) ON PURPOSE
+        # -- that default is the thing under test. Do not pass it explicitly.
+        - name: Render
+          id: k8srender
+          template:
+            uses: k8sTemplateAction
+            with:
+              render_in_place: true
+              print_manifest: true
+
+        - name: CDS-131003 rendered manifest
+          id: k8srendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              # The rendered copy is picked by CONTENT, not by path: LITERAL is
+              # set only by this fixture's own values file, so a copy carrying
+              # it can only be this fixture's render. That also catches the case
+              # where the service is still pointed at another fixture.
+              LITERAL=cds131005-k8s-default
+              echo "===== every k8sTest deployment.yaml in the workspace ====="
+              found=0
+              for f in $(find /harness -type f -name deployment.yaml -path '*k8sTest*' 2>/dev/null | sort); do
+                found=1
+                if grep -q '{{' "$f"; then state="RAW  (go-template left)"
+                elif grep -q '<[+]' "$f"; then state="PARTIAL (harness expr left)"
+                else state="RENDERED"; fi
+                echo "  [$state] $f"
+              done
+              if [ $found -eq 0 ]; then
+                echo "  none found -- the fixture was not cloned"
+                exit 2
+              fi
+              echo
+              m=""
+              for f in $(find /harness -type f -name deployment.yaml -path '*k8sTest*' 2>/dev/null | sort); do
+                if grep -q '{{' "$f" || grep -q '<[+]' "$f"; then continue; fi
+                if grep -q "$LITERAL" "$f"; then m="$f"; break; fi
+              done
+              if [ -z "$m" ]; then
+                other=""
+                for f in $(find /harness -type f -name deployment.yaml 2>/dev/null | sort); do
+                  if grep -q '{{' "$f" || grep -q '<[+]' "$f"; then continue; fi
+                  other="$f"; break
+                done
+                if [ -n "$other" ]; then
+                  echo "CONFIG ERROR: the only rendered manifest is"
+                  echo "    $other"
+                  echo "  and it does not carry this run's literal ($LITERAL), so it"
+                  echo "  came from a DIFFERENT fixture. Templating worked; the service"
+                  echo "  is pointed elsewhere. Repoint it at k8sTest and re-run."
+                  exit 2
+                fi
+                echo "WARNING: nothing is rendered anywhere. The Rendering/Templating"
+                echo "         steps did not run before this step -- a step-order"
+                echo "         problem, NOT a failure of the behaviour under test."
+                m=$(find /harness -type f -name deployment.yaml -path '*k8sTest*' 2>/dev/null | sort | head -1)
+              fi
+              echo "manifest under test: $m"
+              echo "--------------------------------------------------------------"
+              cat "$m"
+              echo "--------------------------------------------------------------"
+              echo
+              val() { sed -n "s/^[[:space:]]*-\{0,1\}[[:space:]]*$1:[[:space:]]*//p" "$m" | head -1 | tr -d "'\""; }
+              chk() { if [ "$3" = "$2" ]; then printf '  PASS  %-26s %s\n' "$1" "$3"
+                      else printf '  FAIL  %-26s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi }
+              echo "===== k8s asserts ====="
+              chk "name (default only)"    "cds131005-k8s-default" "$(val name)"
+              chk "replicas (default only)" "3"                    "$(val replicas)"
+              chk "image (default only)"   "nginx:1.25"            "$(val image)"
+              chk "tier (declared beats)"  "qa"                    "$(val tier)"
+              chk "port (last wins)"       "256"                   "$(val containerPort)"
+              echo
+              echo "===== CDS-131003 leak canary ====="
+              # templates/values.yaml is FETCHED (the manifest plugin probes 4
+              # names) but never APPLIED (k8s-template probes 2, at the dir
+              # root). So the only way LEAK-DETECTED can render is via overrides.
+              if grep -q 'LEAK-DETECTED' "$m"; then
+                echo "  FAIL  templates-dir-default rendered LEAK-DETECTED"
+                echo "        => k8sTest/templates/values.yaml reached k8s-template"
+                echo "           through overrides. The CDS-131003 leak is present."
+                fail=1
+              else
+                echo "  PASS  templates-dir-default did not leak"
+              fi
+              echo
+              echo "===== expression resolution ====="
+              if grep -q '<[+]' "$m"; then
+                echo "  FAIL  an unresolved Harness expression is left:"
+                grep -n '<[+]' "$m" | sed 's/^/        /'
+                echo "        => the default was dropped from toTemplate as well as"
+                echo "           overrides. That is over-correction, not the fix."
+                fail=1
+              else
+                echo "  PASS  no unresolved Harness expression"
+              fi
+              if grep -q '{{' "$m"; then
+                echo "  FAIL  unrendered go-template left:"
+                grep -n '{{' "$m" | sed 's/^/        /'
+                fail=1
+              else
+                echo "  PASS  no unrendered go-template"
+              fi
+              echo
+              echo "===== unsupplied-key audit ====="
+              # Renderers disagree on how an unsupplied key prints: Go
+              # text/template emits <no value>, helm emits an empty string.
+              # Accept either for the canary, and reject either anywhere else.
+              c=$(val templates-dir-default)
+              if [ -z "$c" ] || [ "$c" = "<no value>" ]; then
+                echo "  PASS  templates-dir-default is unsupplied, as expected [$c]"
+              else
+                echo "  FAIL  templates-dir-default has a value: [$c]"; fail=1
+              fi
+              bad=$(grep -n '<no value>' "$m" | grep -v 'templates-dir-default' || true)
+              if [ -n "$bad" ]; then
+                echo "  FAIL  <no value> on a key that should have been supplied:"
+                printf '%s\n' "$bad" | sed 's/^/        /'
+                fail=1
+              else
+                echo "  PASS  no other unsupplied key"
+              fi
+              echo
+              if [ $fail -eq 0 ]; then
+                echo "RESULT: PASS -- the k8s swimlane is unaffected by CDS-131003."
+              else
+                echo "RESULT: FAIL -- read the workspace listing at the top FIRST. If"
+                echo "        nothing is RENDERED this step ran too early and the"
+                echo "        ticket is not implicated."
+              fi
+              exit $fail
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =======================================================================
+    # Stage 2 -- Helm
+    # =======================================================================
+    - name: Helm
+      id: helm
+      service: <YOUR_HELM_SERVICE_ID>
+      environment:
+        id: <YOUR_K8S_ENV_ID>
+        deploy-to: <YOUR_K8S_INFRA_ID>
+      steps:
+
+        - name: CDS-131003 overrides
+          id: helmoverrides
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+            script: |-
+              set -u
+              fail=0
+              echo "overrides  : $OVERRIDES"
+              echo "toTemplate : $TO_TEMPLATE"
+              echo
+              echo "===== overrides must hold ONLY the declared values files ====="
+              for f in values-a.yaml values-b.yaml; do
+                case "$OVERRIDES" in
+                  *"$f"*) echo "  PASS  declared $f is in overrides" ;;
+                  *)      echo "  FAIL  declared $f MISSING from overrides"; fail=1 ;;
+                esac
+              done
+              case "$OVERRIDES" in
+                *chart/values.yaml*|*values-leak.yaml*)
+                  echo "  FAIL  a chart-internal values file leaked into overrides"; fail=1 ;;
+                *)
+                  echo "  PASS  no chart-internal values file in overrides" ;;
+              esac
+              case "$OVERRIDES" in
+                *Chart.yaml*|*deployment.yaml*)
+                  echo "  FAIL  a chart metadata/template file leaked into overrides"; fail=1 ;;
+                *)
+                  echo "  PASS  no chart metadata/template file in overrides" ;;
+              esac
+              echo
+              echo "===== toTemplate must still carry the chart values (it has an expression) ====="
+              case "$TO_TEMPLATE" in
+                *chart/values.yaml*)
+                  echo "  PASS  chart/values.yaml is in toTemplate" ;;
+                *)
+                  echo "  INFO  chart/values.yaml is NOT in toTemplate -- expect owner"
+                  echo "        to render as the literal expression in the next step" ;;
+              esac
+              echo
+              echo "===== the fixture on disk ====="
+              for d in $(find /harness -type d -path '*helmTest/chart' 2>/dev/null | sort); do
+                echo "  $d"
+                find "$d" -type f | sed "s#^#    #"
+              done
+              echo
+              if [ $fail -eq 0 ]; then echo "RESULT: PASS"; else echo "RESULT: FAIL"; fi
+              exit $fail
+
+        # LOAD-BEARING -- same reason as the k8s stage. `values` stays at its
+        # ${{manifests.overrides}} default because that default IS the test.
+        #
+        # server_rendering is left false so helm renders locally: no cluster
+        # round-trip, no kubeconfig needed, nothing deployed.
+        - name: Render
+          id: helmrender
+          template:
+            uses: k8sHelmTemplateAction
+            with:
+              output: /harness/rendered-helm.yaml
+              print_manifest: true
+
+        - name: CDS-131003 rendered chart
+          id: helmrendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              LITERAL=cds131003-helm
+              m=/harness/rendered-helm.yaml
+              echo "===== rendered output ====="
+              if [ ! -f "$m" ]; then
+                echo "  $m does not exist."
+                echo
+                echo "  Every yaml the helm renderer may have written instead:"
+                find /harness -maxdepth 3 -type f -name '*.yaml' 2>/dev/null | sed 's/^/    /'
+                echo
+                echo "CONFIG ERROR: the Render step's output input did not land where"
+                echo "  this assert looks. Either it failed, or it wrote elsewhere."
+                exit 2
+              fi
+              echo "manifest under test: $m"
+              echo "--------------------------------------------------------------"
+              cat "$m"
+              echo "--------------------------------------------------------------"
+              echo
+              if ! grep -q "$LITERAL" "$m"; then
+                echo "CONFIG ERROR: the rendered output does not carry this run's"
+                echo "  literal ($LITERAL), so it was rendered from a DIFFERENT chart."
+                echo "  Rendering worked; the service is pointed elsewhere. Repoint it"
+                echo "  at helmTest/chart and re-run."
+                exit 2
+              fi
+              val() { sed -n "s/^[[:space:]]*-\{0,1\}[[:space:]]*$1:[[:space:]]*//p" "$m" | head -1 | tr -d "'\""; }
+              chk() { if [ "$3" = "$2" ]; then printf '  PASS  %-26s %s\n' "$1" "$3"
+                      else printf '  FAIL  %-26s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi }
+              echo "===== helm asserts ====="
+              chk "name (chart only)"      "cds131003-helm" "$(val name)"
+              chk "replicas (chart only)"  "3"              "$(val replicas)"
+              chk "image (chart only)"     "nginx:1.25"     "$(val image)"
+              chk "tier (declared beats)"  "qa"             "$(val tier)"
+              chk "port (last wins)"       "256"            "$(val containerPort)"
+              echo
+              echo "===== CDS-131003 leak canary ====="
+              # helm reads ONLY values.yaml from a chart dir, so values-leak.yaml
+              # can reach the -f list only through overrides.
+              if grep -q 'LEAK-DETECTED' "$m"; then
+                echo "  FAIL  leak-canary rendered LEAK-DETECTED"
+                echo "        => helmTest/chart/values-leak.yaml reached helm through"
+                echo "           overrides. The CDS-131003 leak is present."
+                fail=1
+              else
+                echo "  PASS  leak-canary did not leak"
+              fi
+              # Second, independent detector: the old union APPENDED fetched
+              # paths, so a leaked chart/values.yaml would be last on -f and win.
+              if [ "$(val tier)" = "default-tier" ] || [ "$(val containerPort)" = "1024" ]; then
+                echo "  NOTE  tier/port fell back to the chart's own values. That is"
+                echo "        the signature of chart/values.yaml being appended AFTER"
+                echo "        the declared files -- i.e. the same leak, seen from the"
+                echo "        precedence side."
+              fi
+              echo
+              echo "===== expression resolution ====="
+              if grep -q '<[+]' "$m"; then
+                echo "  FAIL  an unresolved Harness expression is left:"
+                grep -n '<[+]' "$m" | sed 's/^/        /'
+                echo "        => chart/values.yaml was dropped from toTemplate as well"
+                echo "           as overrides. That is over-correction, not the fix."
+                fail=1
+              else
+                echo "  PASS  no unresolved Harness expression"
+              fi
+              if grep -q '{{' "$m"; then
+                echo "  FAIL  unrendered go-template left:"
+                grep -n '{{' "$m" | sed 's/^/        /'
+                fail=1
+              else
+                echo "  PASS  no unrendered go-template"
+              fi
+              echo
+              echo "===== unsupplied-key audit ====="
+              # VERIFIED LOCALLY against helm v4.2.1: an unsupplied key renders
+              # as an EMPTY string, not Go text/template's <no value>. So do not
+              # audit for <no value> here -- that would pass vacuously. The
+              # canary is proved by the label being empty; the five asserts
+              # above are what catch a values file failing to apply.
+              c=$(val leak-canary)
+              if [ -z "$c" ] || [ "$c" = "<no value>" ]; then
+                echo "  PASS  leak-canary is unsupplied, as expected [$c]"
+              else
+                echo "  FAIL  leak-canary has a value: [$c]"; fail=1
+              fi
+              if grep -q '<no value>' "$m"; then
+                echo "  FAIL  <no value> present -- a key was templated but never supplied:"
+                grep -n '<no value>' "$m" | sed 's/^/        /'
+                fail=1
+              else
+                echo "  PASS  no <no value> anywhere"
+              fi
+              echo
+              if [ $fail -eq 0 ]; then
+                echo "RESULT: PASS -- the helm swimlane is unaffected by CDS-131003."
+              else
+                echo "RESULT: FAIL"
+              fi
+              exit $fail
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

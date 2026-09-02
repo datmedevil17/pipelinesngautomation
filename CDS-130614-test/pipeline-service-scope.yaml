@@ -1,0 +1,66 @@
+# CDS-130614 repro -- Unified (v1) CD has no per-service failure strategy.
+#
+# WHAT THIS PROVES
+#   In NG (v0) CD, a `service`/`environment` block can carry its own failure
+#   strategy that takes priority over the stage's failure strategy. In
+#   Unified (v1) CD, `on-failure` only exists at the STAGE level today --
+#   `service:` has no `on-failure` key at all, and even when the service
+#   itself fails to resolve (bad ref, bad manifest, etc.) there is currently
+#   no failure-strategy handling wired onto the service plan node, so the
+#   stage-level strategy doesn't apply to it either.
+#
+#   This pipeline deliberately points `service.id` at a service that does
+#   not exist, so the Service node fails. It sets:
+#     - service.on-failure  -> abort   (mark the execution as ABORTED)
+#     - stage-level on-failure -> fail   (mark the execution as FAILED)
+#   These are intentionally opposite, easy-to-eyeball outcomes. (`abort` is
+#   used here, not `success`, because only Abort/PipelineRollback/
+#   MarkAsFailure/Retry are allowed at service scope -- see the allow-list
+#   in UnifiedFailureStrategyHelperV1.)
+#
+# BEFORE THE FIX (bug present)
+#   - Schema: `service.on-failure` is rejected by validation (v1 ServiceV1
+#     schema has `additionalProperties: false` and no `on-failure` property),
+#     OR if your instance already has the harness-schema change deployed but
+#     not the plan-creator wiring, the key is accepted but silently has NO
+#     effect.
+#   - Runtime: the Service node failure is NOT caught by either the service
+#     on-failure or the stage on-failure. The stage simply fails.
+#
+# AFTER THE FIX (expected)
+#   - Schema accepts `service.on-failure`.
+#   - The Service node failure is handled by the SERVICE-scoped strategy
+#     (abort), NOT the stage-level one (mark as failed), proving
+#     service-scope takes priority over stage-scope -- exactly like NG.
+#
+# BEFORE RUNNING
+#   Replace <YOUR_ENV_ID> / <YOUR_INFRA_ID> with a real environment/infra --
+#   they are never reached if the Service node fails first, but must be
+#   present for the pipeline to pass schema validation.
+
+pipeline:
+  stages:
+    - name: CDS-130614 service scope repro
+      id: cds130614svc
+      on-failure:
+        - errors: [all]
+          action: fail   # stage-level fallback: should NOT win if the fix is in
+      service:
+        id: this_service_id_does_not_exist_cds130614
+        on-failure:
+          - errors: [all]
+            action: abort   # service-level override: SHOULD win if the fix is in
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: should never run
+          id: shouldneverrun
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "If you see this step execute, the Service node did NOT fail as expected -- fix the service id first."
+              exit 1

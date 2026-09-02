@@ -1,0 +1,67 @@
+# CDS-130614 -- NG (v0) reference pipeline, for side-by-side comparison only.
+#
+# This is the feature that already works in NG (v0) CD today and that
+# Unified (v1) CD is missing: a `serviceConfig`/`infraStructure` failure
+# strategy that overrides the stage's failure strategy. It is NOT part of
+# the repro -- it's here so you can run it next to the two v1 pipelines and
+# see the working parity behavior for comparison.
+#
+# Replace every <YOUR_...> placeholder. Point `serviceRef` at a service that
+# does not exist to force the ServiceStep to fail, same as the v1 repro.
+#
+# Uses `Abort` at service scope (not `MarkAsSuccess`): NG's own allow-list
+# (ServiceFailureStrategyHelper.ALLOWED_ACTIONS_FOR_SERVICE) only permits
+# Abort/PipelineRollback/MarkAsFailure/Retry at service scope -- MarkAsSuccess
+# would be rejected with InvalidRequestException, same as in v1.
+
+pipeline:
+  name: CDS-130614 NG v0 parity reference
+  identifier: cds130614_ng_v0_parity_reference
+  projectIdentifier: <YOUR_PROJECT_ID>
+  orgIdentifier: <YOUR_ORG_ID>
+  tags: {}
+  stages:
+    - stage:
+        name: NG service scope repro
+        identifier: ngservicescoperepro
+        description: ""
+        type: Deployment
+        spec:
+          serviceConfig:
+            serviceRef: this_service_id_does_not_exist_cds130614
+            failureStrategies:
+              - onFailure:
+                  errors:
+                    - AllErrors
+                  action:
+                    type: Abort
+          infrastructure:
+            environmentRef: <YOUR_ENV_ID>
+            infrastructureDefinition:
+              type: KubernetesDirect
+              spec:
+                connectorRef: <YOUR_K8S_CONNECTOR>
+                namespace: <YOUR_NAMESPACE>
+                releaseName: release-<+INFRA_KEY>
+          execution:
+            steps:
+              - step:
+                  name: should never run
+                  identifier: shouldneverrun
+                  type: ShellScript
+                  spec:
+                    shell: Bash
+                    onDelegate: true
+                    source:
+                      type: Inline
+                      spec:
+                        script: |-
+                          echo "If you see this step execute, the ServiceStep did NOT fail as expected -- fix serviceRef first."
+                          exit 1
+            rollbackSteps: []
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: MarkAsFailure
