@@ -1,0 +1,38 @@
+# CDS-130653 repro manifest.
+#
+# Every templated key below is supplied ONLY by k8sValues/values-declared.yaml,
+# which the service declares as an override. There is deliberately NO values.yaml
+# in this manifest directory -- see the note in ../../README.md. A default
+# values.yaml here would be auto-discovered by k8s-template and would mask the
+# skip we are trying to observe.
+#
+# If the templating step RUNS  -> these render to real values.
+# If the templating step SKIPS -> these stay as raw go-template, and the k8s
+#                                 dry run fails because `replicas` is not an int.
+#                                 That failure IS the expected before-state.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds130653-repro
+  labels:
+    app: cds130653-repro
+    # Only-in-declared key. If the declared override file was never applied this
+    # renders empty; if templating never ran at all it stays raw go-template.
+    # No unresolved-marker text is spelled out in this file on purpose -- the
+    # assert step greps the rendered manifest for it.
+    proof: {{ .Values.proof }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: cds130653-repro
+  template:
+    metadata:
+      labels:
+        app: cds130653-repro
+    spec:
+      containers:
+        - name: app
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: {{ .Values.port }}

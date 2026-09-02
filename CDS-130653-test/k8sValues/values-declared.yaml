@@ -1,0 +1,18 @@
+# The DECLARED override file. In the unified service this is listed under the
+# k8s manifest's `values:` input (K8sManifest.java:45 -- the bean has a `values`
+# field and no `valuesPaths` field, so `values:` is the only spelling available).
+#
+# Because ServiceEntityProcessor derives:
+#   manifests.overrides  <- first of [overrides, values, params, valuesPaths, ...]
+#   manifests.toTemplate <- ONLY the `valuesPaths` key, for k8s
+# this file lands in `overrides` but NOT in `toTemplate`.
+#
+# TemplatingStep.willRunTemplating() gates on `toTemplate`, so it skips --
+# even though this file exists and carries real overrides.
+#
+# No Harness expression in here on purpose: this test is about the gate,
+# not about fetch-stage expression discovery (that is CDS-131005).
+proof: TEMPLATING-RAN
+replicaCount: 7
+image: nginx:1.25
+port: 8080

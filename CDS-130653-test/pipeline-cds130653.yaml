@@ -1,0 +1,233 @@
+# CDS-130653 repro -- TemplatingStep gates on a key it can never see.
+#
+# WHAT THIS PROVES
+#   manifests.overrides  is populated from the FIRST of these input keys:
+#       overrides, values, params, valuesPaths, paramsPaths, patchesPaths, filePath
+#   manifests.toTemplate is populated from ONLY ONE key, chosen by manifest type:
+#       k8s / helm-chart / serverless / aws-sam / values  ->  valuesPaths
+#
+#   The unified K8sManifest bean (K8sManifest.java:45) has a `values` field and
+#   NO `valuesPaths` field. So a unified k8s service can only spell it `values:`,
+#   which means toTemplate is ALWAYS empty for k8s.
+#
+#   TemplatingStep.willRunTemplating() gates on toTemplate, but every template in
+#   templates/templating/*.yaml feeds the plugin manifests.overrides. Gate reads
+#   one list, payload uses the other.
+#
+#   k8s and helm-chart are the only gated types -- serverless, aws-sam, kustomize
+#   and openshift are bypassed by MANIFEST_TYPES_ALWAYS_TEMPLATE (TemplatingStep.java:81).
+#   That is why this bug hides: the swimlanes people test most never hit the gate.
+#
+# BEFORE RUNNING
+#   1. Commit and push CDS-130653-test/ -- the pipeline fetches from git, not
+#      from your working copy.
+#   2. Point a Kubernetes unified service at:
+#          paths:   CDS-130653-test/k8s
+#          values:  CDS-130653-test/k8sValues/values-declared.yaml
+#      Do NOT add a values.yaml inside CDS-130653-test/k8s -- k8s-template
+#      auto-discovers that name and it would mask the skip.
+#   3. Replace every <YOUR_...> placeholder below.
+#
+# EXPECTED
+#   BEFORE the fix: step 1 prints "BUG PRESENT", step 2 (Dry Run) FAILS because
+#                   replicas is still the raw go-template "{{ .Values.replicaCount }}".
+#                   That failure is the repro, not a broken fixture.
+#   AFTER  the fix: step 1 prints "gate will pass", Dry Run succeeds, step 3 asserts green.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: K8s Gate Repro
+      id: k8sgaterepro
+      service: <YOUR_K8S_UNIFIED_SERVICE_ID>
+      environment:
+        id: <YOUR_K8S_ENV_ID>
+        deploy-to: <YOUR_K8S_INFRA_ID>
+      steps:
+
+        # ===================================================================
+        # STEP 1 -- the actual repro. This step alone diagnoses the bug and
+        # always runs, even when the Dry Run below fails. Read this first.
+        # ===================================================================
+        - name: CDS-130653 gate evidence
+          id: gateevidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+              TO_RENDER: ${{serviceOutput.manifests.toRender}}
+              PRIMARY_TYPE: ${{serviceOutput.manifests.primary.uses}}
+            script: |-
+              set -u
+              echo "primary type : $PRIMARY_TYPE"
+              echo "overrides    : $OVERRIDES"
+              echo "toTemplate   : $TO_TEMPLATE"
+              echo "toRender     : $TO_RENDER"
+              echo
+
+              # An unresolved Harness expression comes back either empty, as the
+              # string "null", or as the literal expression text. We detect the
+              # literal by looking for the inner path only -- never write the
+              # expression delimiters in a script body, because Harness resolves
+              # them before sh ever sees this file.
+              blank() {
+                case "$1" in
+                  ""|null|null,*) return 0 ;;
+                  *serviceOutput.manifests*) return 0 ;;
+                  *) return 1 ;;
+                esac
+              }
+
+              echo "----- gate inputs -----"
+              if blank "$OVERRIDES"; then
+                ov=empty; echo "  overrides  : EMPTY"
+              else
+                ov=set;   echo "  overrides  : SET"
+              fi
+              if blank "$TO_TEMPLATE"; then
+                tt=empty; echo "  toTemplate : EMPTY"
+              else
+                tt=set;   echo "  toTemplate : SET"
+              fi
+
+              echo
+              echo "----- verdict -----"
+              # willRunTemplating() gates on toTemplate.
+              # templates/templating/k8s.yaml feeds PLUGIN_VALUES_PATH from overrides.
+              if [ "$ov" = set ] && [ "$tt" = empty ]; then
+                echo "  BUG PRESENT -- wrongly SKIPS"
+                echo "  overrides has real files, but the gate reads toTemplate,"
+                echo "  which is empty. Templating will be skipped and the declared"
+                echo "  override file will never be applied."
+                echo "  Expect the Dry Run step below to FAIL on a raw go-template."
+                echo "  This is the CDS-130653 before-state."
+                exit 1
+              elif [ "$ov" = empty ] && [ "$tt" = set ]; then
+                echo "  BUG PRESENT -- wrongly RUNS"
+                echo "  The gate passes on toTemplate, but PLUGIN_VALUES_PATH comes"
+                echo "  from overrides, which is empty. A whole container will run"
+                echo "  and do nothing."
+                exit 1
+              elif [ "$ov" = set ] && [ "$tt" = set ]; then
+                echo "  gate will pass, payload is non-empty -- consistent."
+                echo "  Either the fix is in, or this service spelled the input"
+                echo "  'valuesPaths' (which populates both lists)."
+                exit 0
+              else
+                echo "  INCONCLUSIVE -- both lists are empty."
+                echo "  This is a service-config problem, NOT the bug. Check that"
+                echo "  the manifest declares values: CDS-130653-test/k8sValues/values-declared.yaml"
+                echo "  and that the paths point at CDS-130653-test/k8s."
+                exit 2
+              fi
+
+        # ===================================================================
+        # STEP 2 -- LOAD-BEARING. The injected Rendering/Templating steps hang
+        # off a step that consumes runtime.manifestPath; k8sDryRunStep's
+        # `manifests` input defaults to exactly that. Dry run renders and
+        # validates without touching cluster workloads.
+        #
+        # BEFORE the fix this step is EXPECTED TO FAIL: templating was skipped,
+        # so replicas is still "{{ .Values.replicaCount }}" and fails int
+        # validation. That failure is the loudest form of the repro.
+        # ===================================================================
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+        # ===================================================================
+        # STEP 3 -- only reached once the fix is in and Dry Run passes.
+        # ===================================================================
+        - name: CDS-130653 rendered manifest
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+
+              echo "===== every deployment.yaml in the workspace ====="
+              found=0
+              for f in $(find /harness -type f -name deployment.yaml 2>/dev/null | sort); do
+                found=1
+                if grep -q '{{' "$f"; then state="RAW (go-template left)"
+                else state="RENDERED"; fi
+                echo "  [$state] $f"
+              done
+              if [ "$found" -eq 0 ]; then
+                echo "  (none)"
+                echo
+                echo "===== /harness tree ====="
+                find /harness -maxdepth 7 2>/dev/null | sort | sed 's/^/    /'
+                echo "FATAL: no deployment.yaml anywhere."
+                exit 2
+              fi
+
+              m=""
+              for f in $(find /harness -type f -name deployment.yaml 2>/dev/null | sort); do
+                if ! grep -q '{{' "$f"; then m="$f"; break; fi
+              done
+              if [ -z "$m" ]; then
+                m=$(find /harness -type f -name deployment.yaml 2>/dev/null | sort | head -1)
+                echo
+                echo "WARNING: no rendered copy exists. Asserting against raw $m,"
+                echo "         so every assert will fail. Templating did not run --"
+                echo "         re-read step 1's verdict."
+              fi
+
+              echo
+              echo "manifest under test: $m"
+              echo "===== contents ====="
+              cat "$m"
+              echo
+
+              val() { sed -n "s/^[[:space:]]*-\{0,1\}[[:space:]]*$1:[[:space:]]*//p" "$m" | head -1 | tr -d "'\""; }
+              chk() {
+                if [ "$3" = "$2" ]; then printf '  PASS  %-24s %s\n' "$1" "$3"
+                else printf '  FAIL  %-24s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi
+              }
+
+              echo "===== asserts ====="
+              # Every one of these keys is supplied ONLY by values-declared.yaml.
+              chk "proof"     "TEMPLATING-RAN" "$(val proof)"
+              chk "replicas"  "7"              "$(val replicas)"
+              chk "image"     "nginx:1.25"     "$(val image)"
+              chk "containerPort" "8080"       "$(val containerPort)"
+
+              echo
+              if grep -q '<no value>' "$m"; then
+                echo "  FAIL  unresolved <no value> -- templating ran but the declared"
+                echo "        override file was never applied. That means the gate was"
+                echo "        fixed but the payload key is still wrong."
+                grep -n '<no value>' "$m" | sed 's/^/          /'
+                fail=1
+              else
+                echo "  PASS  no <no value> left"
+              fi
+
+              echo
+              if [ "$fail" -eq 0 ]; then
+                echo "RESULT: PASS -- gate and payload agree. The declared override"
+                echo "        file reached the templating plugin. CDS-130653 fixed."
+              else
+                echo "RESULT: FAIL -- see step 1's verdict first."
+              fi
+              exit $fail
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
