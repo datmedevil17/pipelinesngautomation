@@ -184,7 +184,7 @@ pipeline:
     # =========================================================================
     - name: Kubernetes
       id: kubernetes
-      service: <YOUR_K8S_SERVICE_ID>
+      service: service_kubernetes_91ad
       environment:
         id: <YOUR_K8S_ENV_ID>
         deploy-to: <YOUR_K8S_INFRA_ID>

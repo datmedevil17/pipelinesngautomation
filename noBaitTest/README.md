@@ -182,5 +182,5 @@ Exit codes: `0` all pass, `1` an assert failed, `2` the manifest was not found.
 All ten pass/fail/misuse paths were verified against simulated renders before
 this file was committed.
 
-Replace the three `<YOUR_...>` placeholders in the Kubernetes stage, and point
+Replace the two remaining `<YOUR_...>` placeholders (k8s env + infra id) and point
 both services at the `noBaitTest/` paths listed at the top of the pipeline.
