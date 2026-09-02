@@ -7,7 +7,7 @@
 # frameworkVersion is 3.39.0 to match serverlessDeployStep's own serverless_version
 # default, so a version mismatch cannot be confused with a values-discovery failure.
 service: {{ .Values.serviceName }}
-frameworkVersion: '3.39.0'
+frameworkVersion: '3.40.0'
 
 provider:
   name: aws
