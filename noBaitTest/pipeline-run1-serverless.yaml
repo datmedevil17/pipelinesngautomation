@@ -1,21 +1,15 @@
-# CDS-131005 Run 1 -- default values file with NO Harness expression.
+# CDS-131005 Run 1, SERVERLESS ONLY -- default values file with NO Harness expression.
 #
-# Two stages, because one stage carries one service:
-#   Stage "Serverless" -- the change under test
-#   Stage "Kubernetes" -- the CONTROL (k8s-template already ships this convention)
+# Paste-and-run: no placeholders. The Kubernetes control stage lives in
+# pipeline-run1.yaml and still needs an environment id and an infrastructure id.
 #
-# BEFORE RUNNING, set these three things:
-#   1. serverless service must point at  noBaitTest/serverless
+# BEFORE RUNNING, set the service:
+#   serverless service must point at  noBaitTest/serverless
 #        paths:              noBaitTest/serverless
 #        configOverridePath: noBaitTest/serverless/serverlessUnified.yaml
 #        values:             noBaitTest/serverless/values-a.yaml
 #                            noBaitTest/serverless/values-b.yaml
 #      values.yaml must NOT be declared -- that is the whole test.
-#   2. kubernetes service must point at  noBaitTest/k8s
-#        paths:       noBaitTest/k8s
-#        valuesPaths: noBaitTest/k8sValues/values-a.yaml
-#                     noBaitTest/k8sValues/values-b.yaml
-#   3. replace every <YOUR_...> placeholder below.
 #
 # STEP ORDER MATTERS. The injected Rendering and Templating steps do NOT run at
 # stage start -- they hang off the steps that consume runtime.manifestPath. Run 1
@@ -221,138 +215,6 @@ pipeline:
                 echo "        was genuinely never applied -- that is the real CDS-131005"
                 echo "        failure, and it means earlier green runs only passed because"
                 echo "        of the fetch-stage bait."
-              fi
-              exit $fail
-
-      runtime:
-        kubernetes:
-          namespace: do-not-delete-serverless
-          connector: account.cdautomationtest
-          automount-service-token: true
-          pull: always
-      timeout: 15m
-
-    # =========================================================================
-    - name: Kubernetes
-      id: kubernetes
-      service: service_kubernetes_91ad
-      environment:
-        id: <YOUR_K8S_ENV_ID>
-        deploy-to: <YOUR_K8S_INFRA_ID>
-      steps:
-
-        - name: CDS-131003 overrides
-          id: k8soverrides
-          run:
-            container:
-              image: alpine
-              connector: account.harnessImage
-            shell: sh
-            env:
-              OVERRIDES: ${{serviceOutput.manifests.overrides}}
-              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
-            script: |-
-              set -u
-              fail=0
-              echo "overrides  : $OVERRIDES"
-              echo "toTemplate : $TO_TEMPLATE"
-              echo
-              for f in values-a.yaml values-b.yaml; do
-                case "$OVERRIDES" in
-                  *"$f"*) echo "  PASS  declared $f is in overrides" ;;
-                  *)      echo "  FAIL  declared $f MISSING from overrides"; fail=1 ;;
-                esac
-              done
-              case "$OVERRIDES" in
-                *values.yaml*) echo "  FAIL  undeclared values.yaml LEAKED into overrides"; fail=1 ;;
-                *)             echo "  PASS  undeclared values.yaml is not in overrides" ;;
-              esac
-              exit $fail
-
-        - name: CDS-131005 rendered manifest
-          id: k8srendered
-          run:
-            container:
-              image: alpine
-              connector: account.harnessImage
-            shell: sh
-            script: |-
-              set -u
-              fail=0
-
-              echo "===== every deployment.yaml in the workspace ====="
-              found=0
-              for f in $(find /harness -type f -name deployment.yaml 2>/dev/null | sort); do
-                found=1
-                if grep -q '{{' "$f"; then state="RAW  (go-template left)"
-                elif grep -q '<+' "$f"; then state="PARTIAL (harness expr left)"
-                else state="RENDERED"; fi
-                echo "  [$state] $f"
-              done
-              if [ "$found" -eq 0 ]; then
-                echo "  (none)"
-                echo
-                echo "===== /harness tree ====="
-                find /harness -maxdepth 7 2>/dev/null | sort | sed 's/^/    /'
-                echo "FATAL: no deployment.yaml anywhere. The k8s stage has no step that"
-                echo "       consumes runtime.manifestPath, so templating may never run."
-                echo "       Add a K8s Rollout/Apply step before this one."
-                exit 2
-              fi
-
-              echo
-              echo "===== all values files in the workspace ====="
-              find /harness -type f \( -name 'values*.yaml' -o -name 'values*.yml' \) 2>/dev/null | sort | sed 's/^/  /'
-
-              m=""
-              for f in $(find /harness -type f -name deployment.yaml 2>/dev/null | sort); do
-                if ! grep -q '{{' "$f"; then m="$f"; break; fi
-              done
-              if [ -z "$m" ]; then
-                m=$(find /harness -type f -name deployment.yaml 2>/dev/null | sort | head -1)
-                echo
-                echo "WARNING: no rendered copy exists. Asserting against the raw $m,"
-                echo "         so expect every assert to fail. That is a step-ordering"
-                echo "         problem, not a CDS-131005 failure."
-              fi
-
-              echo
-              echo "manifest under test: $m"
-              echo "===== contents ====="
-              cat "$m"
-              echo
-
-              val() { sed -n "s/^[[:space:]]*-\{0,1\}[[:space:]]*$1:[[:space:]]*//p" "$m" | head -1 | tr -d "'\""; }
-              chk() {
-                if [ "$3" = "$2" ]; then printf '  PASS  %-26s %s\n' "$1" "$3"
-                else printf '  FAIL  %-26s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi
-              }
-
-              echo "----- asserts -----"
-              chk "name (default-only)"      "cds131005-k8s-default"       "$(val name)"
-              chk "replicas (default-only)"  "3"                           "$(val replicas)"
-              chk "image (default-only)"     "nginx:1.25"                  "$(val image)"
-              chk "owner (default-only)"     "plain-literal-no-expression" "$(val owner)"
-              chk "tier (declared beats)"    "qa"                          "$(val tier)"
-              chk "containerPort (last wins)" "256"                        "$(val containerPort)"
-              # templates/values.yaml must NOT be applied, so this key stays unset
-              # and go-template renders the literal "<no value>".
-              chk "templates-dir-default"    "<no value>"                  "$(val templates-dir-default)"
-
-              echo
-              if grep -q 'LEAK-DETECTED' "$m"; then
-                echo "  FAIL  CDS-131003 leak: templates/values.yaml was applied"; fail=1
-              else
-                echo "  PASS  no CDS-131003 leak"
-              fi
-
-              echo
-              if [ "$fail" -eq 0 ]; then
-                echo "RESULT: PASS (control) -- Kubernetes also discovers the default"
-                echo "        values file with no Harness expression in it."
-              else
-                echo "RESULT: FAIL (control) -- see above. If BOTH stages fail, the default"
-                echo "        file never reaches disk and CDS-131005 needs a redesign."
               fi
               exit $fail
 
