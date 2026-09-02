@@ -1,0 +1,37 @@
+# CDS-131005 Run 2 fixture -- REGRESSION GUARD: this manifest directory ships NO
+# default values file at all. No values.yaml, no values.yml.
+#
+# This is the shape every existing customer has today: only declared values files.
+# CDS-131005 must be a no-op for them. GetDefaultValueFiles must find nothing,
+# PrependDefaultValueFilePaths must return valuesPaths unchanged, and the render
+# must be byte-for-byte what it was before the change.
+#
+# Every templated key below is supplied by a DECLARED file, deliberately:
+#   stage       -> values-a.yaml                  => declared list still applied
+#   memorySize  -> values-a.yaml AND values-b.yaml => last declared still wins
+#
+# service and region are LITERALS here, unlike noBaitTest/. That is the point: with
+# no default file on disk there is no layer that could supply them, so templating
+# them would only test go-template's missing-key behaviour, which is a different
+# question. Keeping them literal means a FAIL in this run can only mean the change
+# broke the declared-values path.
+service: cds131005-nodefault
+frameworkVersion: '3.40.0'
+
+provider:
+  name: aws
+  region: us-east-1
+  stage: {{ .Values.stage }}
+  memorySize: {{ .Values.memorySize }}
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
+
+functions:
+  currentTime:
+    image: appimage
+    events:
+      - httpApi:
+          path: /time
+          method: get

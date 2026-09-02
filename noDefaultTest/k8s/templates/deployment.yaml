@@ -1,0 +1,31 @@
+# CDS-131005 Run 2 -- Kubernetes control for the no-default case.
+#
+# k8s/ ships NO values.yaml and NO templates/values.yaml. k8s-template already
+# probes for a default and already tolerates its absence, so this stage is the
+# reference: whatever it does, Serverless must now do too.
+#
+# appName / image / replicas are LITERALS -- with no default file there is nothing
+# that could supply them. Only tier and port are templated, both from declared files.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds131005-k8s-nodefault
+  labels:
+    app: cds131005-k8s-nodefault
+    tier: {{ .Values.tier }}
+    owner: plain-literal-no-expression
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cds131005-k8s-nodefault
+  template:
+    metadata:
+      labels:
+        app: cds131005-k8s-nodefault
+    spec:
+      containers:
+        - name: cds131005-k8s-nodefault
+          image: nginx:1.25
+          ports:
+            - containerPort: {{ .Values.port }}

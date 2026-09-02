@@ -1,0 +1,4 @@
+# DECLARED FIRST in the service `values:` block. Must appear in manifests.overrides.
+# With no default file present this is the BASE layer, so it must supply `stage`.
+stage: qa
+memorySize: 512

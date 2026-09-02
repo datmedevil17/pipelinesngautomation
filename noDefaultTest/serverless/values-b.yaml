@@ -1,0 +1,4 @@
+# DECLARED SECOND. go-template applies values files in order, so this memorySize
+# must WIN over values-a.yaml (512). Unchanged from Run 1 -- if the ordering breaks
+# when no default is prepended, the prepend logic is corrupting the declared list.
+memorySize: 256
