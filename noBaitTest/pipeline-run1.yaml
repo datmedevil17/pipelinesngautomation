@@ -110,7 +110,13 @@ pipeline:
           template:
             uses: serverlessPackageStep
             with:
-              pre_exec_cmd: cd "$(echo ${PLUGIN_SERVERLESS_FILE_PATH} | tr -d '"' | sed 's:/*$::')" && npm install
+              # PLUGIN_SERVERLESS_FILE_PATH is a FILE, not a directory -- the template
+              # calls it "Serverless Config File Path" with placeholder serverless.yml.
+              # `cd $PLUGIN_SERVERLESS_FILE_PATH` therefore always fails, and here it
+              # arrived as the bare relative name "serverlessUnified.yaml", so dirname
+              # would only give ".". Locate package.json instead: it is unambiguous and
+              # does not depend on how configOverridePath happens to be spelled.
+              pre_exec_cmd: d=$(find /harness -type f -name package.json -path '*noBaitTest*' -not -path '*/node_modules/*' 2>/dev/null | head -1) && echo "npm install in $(dirname "$d")" && cd "$(dirname "$d")" && npm install
               image: harnessdev/serverless-plugin:0.0.2-nodejs24.x-1.151.0
               container_registry: account.harnessImage
 
