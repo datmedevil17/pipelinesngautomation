@@ -269,6 +269,17 @@ pipeline:
               esac
               exit $fail
 
+        # LOAD-BEARING, same reason as Package in the Serverless stage: the
+        # injected Rendering/Templating steps hang off a step that consumes
+        # runtime.manifestPath, and k8sDryRunStep's `manifests` input defaults to
+        # exactly that. Dry run renders and validates without deploying, so it
+        # triggers templating without touching the cluster's workloads.
+        # Every other input defaults from the infrastructure, so `with` is empty.
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
         - name: CDS-131005 rendered manifest
           id: k8srendered
           run:
