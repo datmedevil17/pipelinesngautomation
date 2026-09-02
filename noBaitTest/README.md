@@ -159,3 +159,28 @@ Self-tested against synthetic PASS and FAIL renders before first use — 6/6 exi
 codes correct, including the "default file not discovered" case. Every check is
 `expected vs actual`; there is deliberately no `grep -q X && FAIL` idiom, which
 is what produced a false FAIL in run R18.
+
+## Pipeline
+
+`pipeline-run1.yaml` runs the whole thing. Two stages, because one stage carries
+one service: `Serverless` (the change under test) and `Kubernetes` (the control).
+
+Each stage has two Run steps, both on `alpine`, both self-contained -- they do NOT
+call `assert.sh`, because `clone: disabled: true` means the repo is not guaranteed
+to be in the workspace. `assert.sh` stays for running the same checks by hand.
+
+| step | asserts |
+|---|---|
+| CDS-131003 overrides | `serviceOutput.manifests.overrides` holds declared files ONLY |
+| CDS-131005 rendered manifest | the rendered manifest on disk carries the default-only keys |
+
+The `INFO` block in step 1 is the one to read first. If it says the default
+`values.yaml` is NOT in `toTemplate` and step 2 still passes, discovery is
+provably disk-based and Run 1 is done.
+
+Exit codes: `0` all pass, `1` an assert failed, `2` the manifest was not found.
+All ten pass/fail/misuse paths were verified against simulated renders before
+this file was committed.
+
+Replace the three `<YOUR_...>` placeholders in the Kubernetes stage, and point
+both services at the `noBaitTest/` paths listed at the top of the pipeline.

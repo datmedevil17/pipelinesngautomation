@@ -1,0 +1,283 @@
+# CDS-131005 Run 1 -- default values file with NO Harness expression.
+#
+# Two stages, because one stage carries one service:
+#   Stage "Serverless" -- the change under test
+#   Stage "Kubernetes" -- the CONTROL (k8s-template already ships this convention)
+#
+# BEFORE RUNNING, set these three things:
+#   1. serverless service must point at  noBaitTest/serverless
+#        paths:              noBaitTest/serverless
+#        configOverridePath: noBaitTest/serverless/serverlessUnified.yaml
+#        values:             noBaitTest/serverless/values-a.yaml
+#                            noBaitTest/serverless/values-b.yaml
+#      values.yaml must NOT be declared -- that is the whole test.
+#   2. kubernetes service must point at  noBaitTest/k8s
+#        paths:       noBaitTest/k8s
+#        valuesPaths: noBaitTest/k8sValues/values-a.yaml
+#                     noBaitTest/k8sValues/values-b.yaml
+#   3. replace every <YOUR_...> placeholder below.
+#
+# The Rendering and Templating steps are injected by the service, so they run
+# before the steps written here. Every check below therefore reads the workspace
+# AFTER templating.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    # =========================================================================
+    - name: Serverless
+      id: serverless
+      service: sls_github_ecr_llale
+      environment:
+        id: ServerlessEnv_ifWGy
+        deploy-to: infra_VVjIq
+      steps:
+
+        - name: CDS-131003 overrides
+          id: overrides
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_RENDER: ${{serviceOutput.manifests.toRender}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+            script: |-
+              set -u
+              fail=0
+              echo "overrides  : $OVERRIDES"
+              echo "toRender   : $TO_RENDER"
+              echo "toTemplate : $TO_TEMPLATE"
+              echo
+              echo "----- CDS-131003: overrides must be DECLARED FILES ONLY -----"
+
+              for f in values-a.yaml values-b.yaml; do
+                case "$OVERRIDES" in
+                  *"$f"*) echo "  PASS  declared $f is in overrides" ;;
+                  *)      echo "  FAIL  declared $f MISSING from overrides"; fail=1 ;;
+                esac
+              done
+
+              # values-a.yaml / values-b.yaml do not contain the substring
+              # "values.yaml", so this only matches the undeclared default.
+              case "$OVERRIDES" in
+                *values.yaml*) echo "  FAIL  undeclared values.yaml LEAKED into overrides"; fail=1 ;;
+                *)             echo "  PASS  undeclared values.yaml is not in overrides" ;;
+              esac
+
+              case "$OVERRIDES" in
+                *serverlessUnified.yaml*|*package.json*)
+                  echo "  FAIL  a non-values file leaked into overrides"; fail=1 ;;
+                *)
+                  echo "  PASS  no non-values file in overrides" ;;
+              esac
+
+              echo
+              echo "----- KEY EVIDENCE for CDS-131005 -----"
+              case "$TO_TEMPLATE" in
+                *"noBaitTest/serverless/values.yaml"*)
+                  echo "  INFO  default values.yaml IS in toTemplate."
+                  echo "        The fetch stage still emitted it, so this run does not yet"
+                  echo "        isolate disk-based discovery. Check why -- values.yaml has"
+                  echo "        no Harness expression, so it should not have qualified." ;;
+                *)
+                  echo "  INFO  default values.yaml is NOT in toTemplate."
+                  echo "        The fetch stage did not emit it, exactly as intended."
+                  echo "        So if the next step renders serviceName/region correctly,"
+                  echo "        discovery is provably DISK-BASED. This is the whole point." ;;
+              esac
+
+              echo
+              echo "----- workspace -----"
+              find /harness -maxdepth 6 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | sort
+
+              exit $fail
+
+        - name: CDS-131005 rendered manifest
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+
+              m=$(find /harness -type f -name serverlessUnified.yaml -path '*noBaitTest*' 2>/dev/null | head -1)
+              if [ -z "$m" ]; then
+                echo "FATAL: rendered serverlessUnified.yaml not found. Workspace:"
+                find /harness -maxdepth 6 -name '*.yaml' 2>/dev/null | sed 's/^/    /'
+                exit 2
+              fi
+              echo "manifest: $m"
+              echo
+              echo "----- rendered manifest -----"
+              cat "$m"
+              echo
+
+              val() { sed -n "s/^[[:space:]]*-\{0,1\}[[:space:]]*$1:[[:space:]]*//p" "$m" | head -1 | tr -d "'\""; }
+              chk() {
+                if [ "$3" = "$2" ]; then printf '  PASS  %-26s %s\n' "$1" "$3"
+                else printf '  FAIL  %-26s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi
+              }
+
+              echo "----- asserts -----"
+              # serviceName and region exist in NO other values file, so they are
+              # the only real proof the undeclared default was discovered.
+              chk "service (default-only)"  "cds131005-default" "$(val service)"
+              chk "region (default-only)"   "us-east-1"         "$(val region)"
+              chk "stage (declared beats)"  "qa"                "$(val stage)"
+              chk "memorySize (last wins)"  "256"               "$(val memorySize)"
+
+              echo
+              if grep -q '<no value>' "$m"; then
+                echo "  FAIL  unresolved <no value> in manifest:"
+                grep -n '<no value>' "$m" | sed 's/^/          /'; fail=1
+              else
+                echo "  PASS  no <no value> left"
+              fi
+              if grep -q '{{' "$m"; then
+                echo "  FAIL  unrendered go-template left:"
+                grep -n '{{' "$m" | sed 's/^/          /'; fail=1
+              else
+                echo "  PASS  no unrendered go-template"
+              fi
+
+              echo
+              if [ "$fail" -eq 0 ]; then
+                echo "RESULT: PASS -- default values file discovered WITHOUT a Harness"
+                echo "        expression. Discovery is disk-based. CDS-131005 holds for"
+                echo "        the real customer case."
+              else
+                echo "RESULT: FAIL -- if the default-only keys are empty, the undeclared"
+                echo "        values.yaml was never applied, which means earlier green runs"
+                echo "        passed only because of the fetch-stage bait."
+              fi
+              exit $fail
+
+        # Optional. Proves the values path actually reaches the plugin, but it can
+        # fail for reasons unrelated to this ticket. Delete it if it gets noisy.
+        # Use serverlessDeployStep/serverlessPackageStep 1.1.0 -- 1.1.1 has a
+        # broken nested-JEXL `image:` default that yields InvalidImageName.
+        - name: Package
+          id: packagestep
+          template:
+            uses: serverlessPackageStep
+            with:
+              pre_exec_cmd: cd "$(echo ${PLUGIN_SERVERLESS_FILE_PATH} | tr -d '"' | sed 's:/*$::')" && npm install
+              image: harnessdev/serverless-plugin:0.0.2-nodejs24.x-1.151.0
+              container_registry: account.harnessImage
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =========================================================================
+    - name: Kubernetes
+      id: kubernetes
+      service: <YOUR_K8S_SERVICE_ID>
+      environment:
+        id: <YOUR_K8S_ENV_ID>
+        deploy-to: <YOUR_K8S_INFRA_ID>
+      steps:
+
+        - name: CDS-131003 overrides
+          id: k8soverrides
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+            script: |-
+              set -u
+              fail=0
+              echo "overrides  : $OVERRIDES"
+              echo "toTemplate : $TO_TEMPLATE"
+              echo
+              for f in values-a.yaml values-b.yaml; do
+                case "$OVERRIDES" in
+                  *"$f"*) echo "  PASS  declared $f is in overrides" ;;
+                  *)      echo "  FAIL  declared $f MISSING from overrides"; fail=1 ;;
+                esac
+              done
+              case "$OVERRIDES" in
+                *values.yaml*) echo "  FAIL  undeclared values.yaml LEAKED into overrides"; fail=1 ;;
+                *)             echo "  PASS  undeclared values.yaml is not in overrides" ;;
+              esac
+              exit $fail
+
+        - name: CDS-131005 rendered manifest
+          id: k8srendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+
+              m=$(find /harness -type f -name deployment.yaml -path '*noBaitTest*' 2>/dev/null | head -1)
+              if [ -z "$m" ]; then
+                echo "FATAL: rendered deployment.yaml not found. Workspace:"
+                find /harness -maxdepth 6 -name '*.yaml' 2>/dev/null | sed 's/^/    /'
+                exit 2
+              fi
+              echo "manifest: $m"
+              echo
+              cat "$m"
+              echo
+
+              val() { sed -n "s/^[[:space:]]*-\{0,1\}[[:space:]]*$1:[[:space:]]*//p" "$m" | head -1 | tr -d "'\""; }
+              chk() {
+                if [ "$3" = "$2" ]; then printf '  PASS  %-26s %s\n' "$1" "$3"
+                else printf '  FAIL  %-26s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi
+              }
+
+              echo "----- asserts -----"
+              chk "name (default-only)"      "cds131005-k8s-default"       "$(val name)"
+              chk "replicas (default-only)"  "3"                           "$(val replicas)"
+              chk "image (default-only)"     "nginx:1.25"                  "$(val image)"
+              chk "owner (default-only)"     "plain-literal-no-expression" "$(val owner)"
+              chk "tier (declared beats)"    "qa"                          "$(val tier)"
+              chk "containerPort (last wins)" "256"                        "$(val containerPort)"
+              # templates/values.yaml must NOT be applied, so this key stays unset
+              # and go-template renders the literal "<no value>".
+              chk "templates-dir-default"    "<no value>"                  "$(val templates-dir-default)"
+
+              echo
+              if grep -q 'LEAK-DETECTED' "$m"; then
+                echo "  FAIL  CDS-131003 leak: templates/values.yaml was applied"; fail=1
+              else
+                echo "  PASS  no CDS-131003 leak"
+              fi
+
+              echo
+              if [ "$fail" -eq 0 ]; then
+                echo "RESULT: PASS (control) -- Kubernetes also discovers the default"
+                echo "        values file with no Harness expression in it."
+              else
+                echo "RESULT: FAIL (control) -- see above. If BOTH stages fail, the default"
+                echo "        file never reaches disk and CDS-131005 needs a redesign."
+              fi
+              exit $fail
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m
