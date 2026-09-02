@@ -20,7 +20,7 @@
 # STEP ORDER MATTERS. The injected Rendering and Templating steps do NOT run at
 # stage start -- they hang off the steps that consume runtime.manifestPath. Run 1
 # attempt 1 put the assert first and every assert failed with the manifest still
-# holding BOTH {{ .Values.x }} and <+artifact.image>, i.e. nothing had rendered.
+# holding BOTH {{ .Values.x }} and an unresolved artifact expression, i.e. nothing rendered.
 # So the manifest assert comes AFTER Package. The overrides assert can stay first,
 # because serviceOutput.manifests.* is resolved at service-resolution time.
 
@@ -102,7 +102,7 @@ pipeline:
 
         # LOAD-BEARING, do not delete. Run 1 first placed the assert step before
         # this one and every assert failed with the manifest still holding BOTH
-        # {{ .Values.x }} and <+artifact.image> -- i.e. neither Rendering nor
+        # {{ .Values.x }} and an unresolved artifact expression -- i.e. neither Rendering nor
         # Templating had run yet. Those steps are injected around the steps that
         # consume runtime.manifestPath, so the assert must come after Package.
         #
@@ -134,6 +134,12 @@ pipeline:
               set -u
               fail=0
 
+              # NOTE: the Harness-expression probe below is written '<[+]', never the
+              # literal two-character token. Harness resolves expressions inside this
+              # script BEFORE sh sees it: the literal token starts an expression, the
+              # next '>' (from a 2>/dev/null further down) closes it, and everything
+              # between is replaced with "null" -- which produced a syntax error on the
+              # first attempt. Same regex, but the two characters are never adjacent.
               echo "===== every serverlessUnified.yaml in the workspace ====="
               # There can be more than one copy: the raw git fetch, and whatever
               # the templating step produced. Print each with its render state so
@@ -142,7 +148,7 @@ pipeline:
               for f in $(find /harness -type f -name serverlessUnified.yaml 2>/dev/null | sort); do
                 found=1
                 if grep -q '{{' "$f"; then state="RAW  (go-template left)"
-                elif grep -q '<+' "$f"; then state="PARTIAL (harness expr left)"
+                elif grep -q '<[+]' "$f"; then state="PARTIAL (harness expr left)"
                 else state="RENDERED"; fi
                 echo "  [$state] $f"
               done
@@ -163,7 +169,7 @@ pipeline:
               # asserts still print something useful when nothing was rendered.
               m=""
               for f in $(find /harness -type f -name serverlessUnified.yaml 2>/dev/null | sort); do
-                if ! grep -q '{{' "$f" && ! grep -q '<+' "$f"; then m="$f"; break; fi
+                if ! grep -q '{{' "$f" && ! grep -q '<[+]' "$f"; then m="$f"; break; fi
               done
               if [ -z "$m" ]; then
                 m=$(find /harness -type f -name serverlessUnified.yaml 2>/dev/null | sort | head -1)
@@ -291,12 +297,13 @@ pipeline:
               set -u
               fail=0
 
+              # See the note in the Serverless stage: '<[+]', never the literal token.
               echo "===== every deployment.yaml in the workspace ====="
               found=0
               for f in $(find /harness -type f -name deployment.yaml 2>/dev/null | sort); do
                 found=1
                 if grep -q '{{' "$f"; then state="RAW  (go-template left)"
-                elif grep -q '<+' "$f"; then state="PARTIAL (harness expr left)"
+                elif grep -q '<[+]' "$f"; then state="PARTIAL (harness expr left)"
                 else state="RENDERED"; fi
                 echo "  [$state] $f"
               done
