@@ -1,0 +1,25 @@
+# CDS-131005 probe: this file is NEVER declared in the service.
+# k8s-template discovers it by filename convention at <manifestPath>/values.yaml
+# and PREPENDS it, so it is the BASE layer.
+
+# --- ONLY-IN-DEFAULT keys: these exist in no other values file. ---
+# If they render, the default file was discovered and applied.
+appName: cds131005-k8s-default
+replicaCount: 3
+image: nginx:1.25
+
+# --- OVERRIDDEN keys: declared files must win over these. ---
+# If these values survive, precedence is inverted (append instead of prepend,
+# or the file leaked into overrides and got applied a second time, later).
+tier: default-tier
+port: 1024
+
+# --- NO BAIT: the ONLY line that differs from k8sTest/values.yaml. ---
+# No Harness expression anywhere in this file, so the fetch stage has nothing to
+# resolve and will not emit this file's body. k8s-template probes the manifest
+# directory on disk, so discovery must still work.
+#
+# This is the REFERENCE run: Kubernetes already ships the convention that
+# CDS-131005 adds to Serverless. `owner` is now an only-in-default key, so the
+# rendered deployment label is a positive assert that the default file was read.
+owner: plain-literal-no-expression

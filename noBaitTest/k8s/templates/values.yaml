@@ -1,0 +1,8 @@
+# The FETCH plugin (kubernetes-manifest) probes 4 names, including
+# templates/values.yaml. The TEMPLATING plugin (k8s-template) probes only 2,
+# at the manifest dir root — so this file is fetched but never applied.
+#
+# Expected render: templatesDirDefault -> <no value>
+# If it renders LEAK-DETECTED, this file reached k8s-template via
+# `overrides` => the CDS-131003 leak is present.
+templatesDirDefault: LEAK-DETECTED

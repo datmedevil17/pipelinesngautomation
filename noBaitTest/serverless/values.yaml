@@ -1,0 +1,27 @@
+# DEFAULT values file. It is found by FILENAME CONVENTION because it sits next to the
+# manifest -- it is NOT declared in the service `values:` block, and it must therefore
+# NEVER appear in serviceOutput.manifests.overrides.
+#
+# This is the BASE layer: it is applied FIRST and every declared values file layers on
+# top of it. That is what CDS-131005 adds.
+#
+# `serviceName` and `region` are set ONLY here -> if they survive into the rendered
+# manifest, the default file was read. If rendering fails on an unresolved
+# {{ .Values.serviceName }}, the default file was NOT read and the fix is not working.
+serviceName: cds131005-default
+region: us-east-1
+
+# these two are ALSO declared, so declared must win over them
+stage: dev
+memorySize: 1024
+
+# NO BAIT -- this is the ONLY line that differs from serverlessTest/values.yaml.
+#
+# There is deliberately no Harness expression anywhere in this file, so the fetch stage
+# (harness-rendering) has nothing to resolve and will NOT emit this file's body. The file
+# is on disk only because git cloned it.
+#
+# CDS-131005 discovers default values files by probing the manifest DIRECTORY on disk
+# (values.GetDefaultValueFiles -> file.Exists), so it must not care. This run is the proof.
+# If serviceName/region render correctly here, discovery is genuinely disk-based.
+owner: plain-literal-no-expression

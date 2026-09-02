@@ -1,0 +1,5 @@
+# DECLARED FIRST in the service `values:` block. Must appear in manifests.overrides.
+# Overrides the default's `stage` and `memorySize`; sets nothing else, so the default
+# still has to supply serviceName and region.
+stage: qa
+memorySize: 512
