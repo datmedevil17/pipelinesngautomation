@@ -1,0 +1,14 @@
+# Manifest B. Never rendered as the primary manifest -- it exists so that b/ is a
+# legitimate manifest directory whose default values file can be discovered.
+# Nothing here is templated, so if this copy ever shows up as the manifest under
+# test the assert will fail on the service name and say so.
+service: cds131005-two-b
+frameworkVersion: '3.40.0'
+
+provider:
+  name: aws
+  region: us-east-1
+  stage: dev
+  memorySize: 128
+
+functions: {}

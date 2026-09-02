@@ -1,0 +1,7 @@
+# Default of manifest A (the FIRST manifest declared on the service).
+# Defaults are collected in manifest order, so this one is applied BEFORE b's.
+svcName: cds131005-two-a
+fromA: a-only
+clash: a-loses
+stage: dev
+memorySize: 1024

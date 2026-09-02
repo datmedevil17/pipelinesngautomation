@@ -153,11 +153,29 @@ pipeline:
                 if ! grep -q '{{' "$f" && ! grep -q '<[+]' "$f"; then m="$f"; break; fi
               done
               if [ -z "$m" ]; then
+                # Distinguish the two ways this can happen. If SOME OTHER fixture has a
+                # rendered copy, templating worked fine and the service is simply pointed
+                # at the wrong manifest -- a configuration error, not a ticket failure.
+                other=""
+                for f in $(find /harness -type f -name serverlessUnified.yaml 2>/dev/null | sort); do
+                  case "$f" in *noDefaultTest*) continue ;; esac
+                  if ! grep -q '{{' "$f" && ! grep -q '<[+]' "$f"; then other="$f"; break; fi
+                done
+                if [ -n "$other" ]; then
+                  echo "CONFIG ERROR: the rendered manifest is"
+                  echo "    $other"
+                  echo "  which belongs to a DIFFERENT fixture. Templating ran correctly;"
+                  echo "  the service is still pointed at that fixture, not noDefaultTest."
+                  echo "  Update the serverless service, then re-run:"
+                  echo "    paths:  noDefaultTest/serverless"
+                  echo "    values: noDefaultTest/serverless/values-a.yaml"
+                  echo "            noDefaultTest/serverless/values-b.yaml"
+                  exit 2
+                fi
                 m=$(find /harness -type f -name serverlessUnified.yaml -path '*noDefaultTest*' 2>/dev/null | sort | head -1)
-                echo "WARNING: no fully rendered copy exists. Every copy still holds"
-                echo "         go-template or Harness-expression markers. That means the"
-                echo "         Rendering/Templating steps did not run before this step,"
-                echo "         NOT that the no-default case is broken."
+                echo "WARNING: nothing is rendered anywhere. The Rendering/Templating"
+                echo "         steps did not run before this step -- that is a step-order"
+                echo "         problem, NOT a failure of the no-default case."
               fi
               echo "manifest under test: $m"
               echo "--------------------------------------------------------------"
@@ -283,8 +301,20 @@ pipeline:
                 case "$f" in *k8sTest*|*noBaitTest*) continue ;; esac
                 if ! grep -q '{{' "$f" && ! grep -q '<[+]' "$f"; then m="$f"; break; fi
               done
+              if [ -n "$m" ] && ! grep -q 'cds131005-k8s-nodefault' "$m"; then
+                echo "CONFIG ERROR: the rendered manifest is"
+                echo "    $m"
+                echo "  but it does not carry this fixture's name literal, so it was"
+                echo "  rendered from a DIFFERENT fixture. Templating ran correctly; the"
+                echo "  kubernetes service is still pointed elsewhere. Update it, then re-run:"
+                echo "    paths:       noDefaultTest/k8s"
+                echo "    valuesPaths: noDefaultTest/k8sValues/values-a.yaml"
+                echo "                 noDefaultTest/k8sValues/values-b.yaml"
+                exit 2
+              fi
               if [ -z "$m" ]; then
-                echo "WARNING: no fully rendered deployment.yaml -- Dry Run did not template."
+                echo "WARNING: nothing is rendered anywhere -- Dry Run did not template."
+                echo "         Step-order problem, not a failure of the no-default case."
                 m=$(find /harness -type f -name deployment.yaml -path '*noDefaultTest*' 2>/dev/null | head -1)
               fi
               echo "manifest under test: $m"

@@ -1,0 +1,10 @@
+# DEFAULT values file for the S3 store case -- never declared.
+#
+# The open question this run answers: default discovery works off the manifest
+# DIRECTORY on disk, so it only works for an S3 store if the zip is extracted with
+# this file sitting next to the manifest. Git stores clone the whole repo, so the
+# sibling is always there; an S3 store extracts whatever the zip happens to contain.
+serviceName: cds131005-s3
+region: us-east-1
+stage: dev
+memorySize: 1024

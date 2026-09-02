@@ -1,0 +1,10 @@
+# DEFAULT values file five directories deep -- never declared.
+#
+# resolveManifestDir() calls file.IsDir on the manifest path and probes that dir, so
+# depth should be irrelevant. This run proves nothing upstream flattens, truncates or
+# re-roots the path before the probe -- the failure mode being guarded against is a
+# manifest dir resolved relative to the wrong root, which silently finds no default.
+serviceName: cds131005-nested
+region: us-east-1
+stage: dev
+memorySize: 1024

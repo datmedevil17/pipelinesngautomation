@@ -1,0 +1,10 @@
+# DEFAULT, spelling TWO. Probed SECOND, so it is applied last among the defaults and
+# WINS every clash with values.yml. That ordering matches k8s-template, so a repo laid
+# out for one swimlane behaves the same in the other.
+#
+# region is set ONLY here -> if it renders, the .yaml spelling was read at all.
+region: us-east-1
+
+# clash keys: these must beat values.yml
+owner: from-values-yaml
+stage: dev-yaml

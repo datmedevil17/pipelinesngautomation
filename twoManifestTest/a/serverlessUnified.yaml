@@ -1,0 +1,38 @@
+# CDS-131005 Run 6 -- two manifest directories, each with its own default values file.
+#
+# PrependDefaultValueFilePaths loops over manifestPaths and appends each manifest's
+# defaults in turn, so the ORDER of the manifests on the service decides which default
+# wins a clash. This is also the code path where the known duplicate-defaults bug lives
+# (alreadyPresent is never updated as defaults are collected), so two manifests that
+# happened to share a default would be added twice.
+#
+#   svcName -> only in a/values.yaml  => manifest A's default was read
+#   fromA   -> only in a/values.yaml  => same
+#   fromB   -> only in b/values.yaml  => manifest B's default was ALSO read
+#   clash   -> in BOTH defaults       => B wins, because B is declared second
+#   stage / memorySize -> declared    => declared still beats both defaults
+service: {{ .Values.svcName }}
+frameworkVersion: '3.40.0'
+
+custom:
+  fromA: {{ .Values.fromA }}
+  fromB: {{ .Values.fromB }}
+  clash: {{ .Values.clash }}
+
+provider:
+  name: aws
+  region: us-east-1
+  stage: {{ .Values.stage }}
+  memorySize: {{ .Values.memorySize }}
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
+
+functions:
+  currentTime:
+    image: appimage
+    events:
+      - httpApi:
+          path: /time
+          method: get

@@ -1,0 +1,24 @@
+# CDS-131005 Run 8 -- a deeply nested manifest directory.
+#
+# Same four-key layout as Run 1 so the two are directly comparable; the only
+# variable is the depth of the manifest path.
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.40.0'
+
+provider:
+  name: aws
+  region: {{ .Values.region }}
+  stage: {{ .Values.stage }}
+  memorySize: {{ .Values.memorySize }}
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
+
+functions:
+  currentTime:
+    image: appimage
+    events:
+      - httpApi:
+          path: /time
+          method: get

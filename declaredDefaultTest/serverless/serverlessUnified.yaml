@@ -1,0 +1,24 @@
+# CDS-131005 Run 5 -- the default values file is ALSO declared explicitly.
+#
+# Same four-key layout as Run 1, deliberately: the render must come out exactly as it
+# did there. If declaring the default changes the render, the dedupe is wrong.
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.40.0'
+
+provider:
+  name: aws
+  region: {{ .Values.region }}
+  stage: {{ .Values.stage }}
+  memorySize: {{ .Values.memorySize }}
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
+
+functions:
+  currentTime:
+    image: appimage
+    events:
+      - httpApi:
+          path: /time
+          method: get

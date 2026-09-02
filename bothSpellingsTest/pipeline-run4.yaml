@@ -1,0 +1,190 @@
+# CDS-131005 Run 4 -- values.yml AND values.yaml both present.
+#
+# Service configuration (sls_github_ecr_llale):
+#   paths:              bothSpellingsTest/serverless
+#   configOverridePath: serverlessUnified.yaml
+#   values:             bothSpellingsTest/serverless/values-a.yaml
+#                       bothSpellingsTest/serverless/values-b.yaml
+#   NEITHER values.yml NOR values.yaml may be declared.
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: Serverless
+      id: serverless
+      service: sls_github_ecr_llale
+      environment:
+        id: ServerlessEnv_ifWGy
+        deploy-to: infra_VVjIq
+      steps:
+
+        - name: CDS-131003 overrides
+          id: overrides
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_RENDER: ${{serviceOutput.manifests.toRender}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+            script: |-
+              set -u
+              fail=0
+              echo "overrides  : $OVERRIDES"
+              echo "toRender   : $TO_RENDER"
+              echo "toTemplate : $TO_TEMPLATE"
+              echo
+              echo "===== CDS-131003: overrides must hold ONLY the declared values files ====="
+              for f in values-a.yaml values-b.yaml; do
+                case "$OVERRIDES" in
+                  *"$f"*) echo "  PASS  declared $f is in overrides" ;;
+                  *)      echo "  FAIL  declared $f MISSING from overrides"; fail=1 ;;
+                esac
+              done
+              case "$OVERRIDES" in
+                *serverlessUnified.yaml*|*package.json*)
+                  echo "  FAIL  a non-values file leaked into overrides"; fail=1 ;;
+                *)
+                  echo "  PASS  no non-values file in overrides" ;;
+              esac
+              echo
+              echo "===== CDS-131005: neither default may appear in overrides ====="
+              case "$OVERRIDES" in
+                *values.yml*) echo "  FAIL  values.yml LEAKED into overrides"; fail=1 ;;
+                *)            echo "  PASS  values.yml is not in overrides" ;;
+              esac
+              case "$OVERRIDES" in
+                *values.yaml*) echo "  FAIL  values.yaml LEAKED into overrides"; fail=1 ;;
+                *)             echo "  PASS  values.yaml is not in overrides" ;;
+              esac
+              echo
+              echo "===== the fixture on disk ====="
+              for d in $(find /harness -type d -path '*bothSpellingsTest/serverless' 2>/dev/null | sort); do
+                echo "  manifest dir: $d"
+                ls -1 "$d" | sed 's/^/    /'
+              done
+              echo
+              if [ $fail -eq 0 ]; then echo "RESULT: PASS"; else echo "RESULT: FAIL"; fi
+              exit $fail
+
+        # LOAD-BEARING. This is the step that consumes runtime.manifestPath, so the
+        # injected Rendering and Templating steps hang off it. An assert placed before
+        # it reads the raw git clone and every check fails while nothing is wrong.
+        #
+        # `image` is pinned because serverlessPackageStep/DeployStep resolve to stable
+        # 1.1.1, whose nested-JEXL `image:` default yields InvalidImageName. Pinning the
+        # input means the broken default is never evaluated.
+        - name: Package
+          id: packagestep
+          template:
+            uses: serverlessPackageStep
+            with:
+              # PLUGIN_SERVERLESS_FILE_PATH is a FILE, not a directory, and arrives as a
+              # bare relative name -- `cd` on it can never work. Locate package.json.
+              pre_exec_cmd: d=$(find /harness -type f -name package.json -path '*bothSpellingsTest*' -not -path '*/node_modules/*' 2>/dev/null | head -1) && echo "npm install in $(dirname "$d")" && cd "$(dirname "$d")" && npm install
+              image: harnessdev/serverless-plugin:0.0.2-nodejs24.x-1.151.0
+              container_registry: account.harnessImage
+
+        - name: CDS-131005 rendered manifest
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              # The rendered copy is picked by CONTENT, not by path: LITERAL below is set
+              # only by this run's own values files, so a copy carrying it can only be
+              # this fixture's render. That also catches the case where the service is
+              # still pointed at a different fixture.
+              LITERAL=cds131005-yml
+              echo "===== every serverlessUnified.yaml in the workspace ====="
+              found=0
+              for f in $(find /harness -type f -name serverlessUnified.yaml 2>/dev/null | sort); do
+                found=1
+                if grep -q '{{' "$f"; then state="RAW  (go-template left)"
+                elif grep -q '<[+]' "$f"; then state="PARTIAL (harness expr left)"
+                else state="RENDERED"; fi
+                echo "  [$state] $f"
+              done
+              if [ $found -eq 0 ]; then
+                echo "  none found -- the fixture was not cloned"
+                exit 2
+              fi
+              echo
+              m=""
+              for f in $(find /harness -type f -name serverlessUnified.yaml 2>/dev/null | sort); do
+                if grep -q '{{' "$f" || grep -q '<[+]' "$f"; then continue; fi
+                if grep -q "$LITERAL" "$f"; then m="$f"; break; fi
+              done
+              if [ -z "$m" ]; then
+                other=""
+                for f in $(find /harness -type f -name serverlessUnified.yaml 2>/dev/null | sort); do
+                  if grep -q '{{' "$f" || grep -q '<[+]' "$f"; then continue; fi
+                  other="$f"; break
+                done
+                if [ -n "$other" ]; then
+                  echo "CONFIG ERROR: the only rendered manifest is"
+                  echo "    $other"
+                  echo "  and it does not carry this run's literal ($LITERAL), so it was"
+                  echo "  rendered from a DIFFERENT fixture. Templating worked; the service"
+                  echo "  is still pointed elsewhere. Repoint it at bothSpellingsTest and re-run."
+                  exit 2
+                fi
+                echo "WARNING: nothing is rendered anywhere. The Rendering/Templating steps"
+                echo "         did not run before this step -- a step-order problem, NOT a"
+                echo "         failure of the behaviour under test."
+                m=$(find /harness -type f -name serverlessUnified.yaml -path '*bothSpellingsTest*' 2>/dev/null | sort | head -1)
+              fi
+              echo "manifest under test: $m"
+              echo "--------------------------------------------------------------"
+              cat "$m"
+              echo "--------------------------------------------------------------"
+              echo
+              val() { sed -n "s/^[[:space:]]*-\{0,1\}[[:space:]]*$1:[[:space:]]*//p" "$m" | head -1 | tr -d "'\""; }
+              chk() { if [ "$3" = "$2" ]; then printf '  PASS  %-26s %s\n' "$1" "$3"
+                      else printf '  FAIL  %-26s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi }
+              echo "===== Run 4 asserts: both spellings read, .yaml wins the clash ====="
+              chk "service (.yml only)"    "cds131005-yml"                "$(val service)"
+              chk "region (.yaml only)"    "us-east-1"                    "$(val region)"
+              chk "owner (.yaml beats .yml)" "from-values-yaml"             "$(val owner)"
+              chk "stage (declared beats)" "qa"                           "$(val stage)"
+              chk "memorySize (last wins)" "256"                          "$(val memorySize)"
+              echo
+              if grep -q '<no value>' "$m"; then
+                echo "  FAIL  unresolved <no value> -- a key was templated but never supplied:"
+                grep -n '<no value>' "$m" | sed 's/^/        /'
+                fail=1
+              else
+                echo "  PASS  no <no value> left"
+              fi
+              if grep -q '{{' "$m"; then
+                echo "  FAIL  unrendered go-template left:"
+                grep -n '{{' "$m" | sed 's/^/        /'
+                fail=1
+              else
+                echo "  PASS  no unrendered go-template"
+              fi
+              echo
+              if [ $fail -eq 0 ]; then
+                echo "RESULT: PASS -- both spellings are discovered and values.yaml is applied last."
+              else
+                echo "RESULT: FAIL -- read the workspace listing at the top FIRST. If nothing"
+                echo "        is RENDERED this step ran too early and the ticket is not"
+                echo "        implicated. If a RENDERED copy exists and the values above are"
+                echo "        wrong, that is the real defect."
+              fi
+              exit $fail
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

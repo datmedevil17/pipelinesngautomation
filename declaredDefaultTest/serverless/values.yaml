@@ -1,0 +1,16 @@
+# This file is BOTH the convention-discovered default AND explicitly declared in the
+# service `values:` block. So it can reach the templating plugin by two routes at once.
+#
+# PrependDefaultValueFilePaths must notice and add it only once -- canonicalPath()
+# compares them after resolving symlinks and making both absolute, because the declared
+# path may be spelled relative while the discovered one is always absolute.
+#
+# Note what the render can and cannot prove. Applied twice the ORDER would be
+# [default, values.yaml, values-a, values-b]; deduped it is
+# [values.yaml, values-a, values-b]. values-a/values-b are last either way, so the
+# rendered manifest is IDENTICAL in both cases. The dedupe itself is only observable
+# in the Templating step's own log -- see the pipeline's note.
+serviceName: cds131005-declared
+region: us-east-1
+stage: dev
+memorySize: 1024

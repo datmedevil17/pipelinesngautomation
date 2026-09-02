@@ -1,0 +1,3 @@
+# Declared first -- must beat BOTH defaults.
+stage: qa
+memorySize: 512

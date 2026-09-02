@@ -1,0 +1,4 @@
+# Default of manifest B (the SECOND manifest declared on the service).
+# Applied AFTER a's default, so it wins `clash`.
+fromB: b-only
+clash: b-wins

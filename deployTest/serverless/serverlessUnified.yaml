@@ -1,0 +1,28 @@
+# CDS-131005 Run 3 -- Package + Deploy, the widest scope.
+#
+# Runs 1 and 2 stop after Templating: they only INSPECT the rendered manifest.
+# Run 3 hands it to the real Serverless CLI, so a manifest that renders correctly
+# but is not actually valid serverless YAML fails here and nowhere else.
+#
+# frameworkVersion is 3.39.0 to match serverlessDeployStep's own serverless_version
+# default, so a version mismatch cannot be confused with a values-discovery failure.
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.39.0'
+
+provider:
+  name: aws
+  region: {{ .Values.region }}
+  stage: {{ .Values.stage }}
+  memorySize: {{ .Values.memorySize }}
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
+
+functions:
+  currentTime:
+    image: appimage
+    events:
+      - httpApi:
+          path: /time
+          method: get

@@ -1,0 +1,9 @@
+# DEFAULT, spelling ONE. DefaultValueFileNames probes values.yml FIRST, so this is
+# applied first and LOSES every clash with values.yaml.
+#
+# serviceName is set ONLY here -> if it renders, the .yml spelling was read at all.
+serviceName: cds131005-yml
+
+# clash keys: values.yaml must beat both of these
+owner: from-values-yml
+stage: dev-yml

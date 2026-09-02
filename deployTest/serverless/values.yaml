@@ -1,0 +1,9 @@
+# DEFAULT values file -- found by filename convention, NEVER declared in the service.
+# serviceName and region are set ONLY here, so if they survive into the manifest that
+# the Serverless CLI actually deploys, the default was read all the way through.
+serviceName: cds131005-deploy
+region: us-east-1
+
+# also declared, so declared must win
+stage: dev
+memorySize: 1024

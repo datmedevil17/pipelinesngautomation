@@ -1,0 +1,36 @@
+# CDS-131005 Run 4 -- both default spellings on disk at once.
+#
+# Three layers now, not two:
+#   values.yml   (default, probed first  -> applied first  -> loses clashes)
+#   values.yaml  (default, probed second -> applied second -> wins clashes)
+#   values-a / values-b (declared, prepended after both defaults -> win everything)
+#
+# Each templated key isolates one of those facts:
+#   serviceName -> only in values.yml    => the .yml spelling was read
+#   region      -> only in values.yaml   => the .yaml spelling was read
+#   owner       -> in BOTH defaults      => values.yaml wins the default-vs-default clash
+#   stage       -> in both + values-a    => declared beats both defaults
+#   memorySize  -> values-a + values-b   => last declared wins
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.40.0'
+
+custom:
+  owner: {{ .Values.owner }}
+
+provider:
+  name: aws
+  region: {{ .Values.region }}
+  stage: {{ .Values.stage }}
+  memorySize: {{ .Values.memorySize }}
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
+
+functions:
+  currentTime:
+    image: appimage
+    events:
+      - httpApi:
+          path: /time
+          method: get

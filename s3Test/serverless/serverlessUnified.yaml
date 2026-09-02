@@ -1,0 +1,24 @@
+# CDS-131005 Run 7 -- same fixture shape as Run 1, served from an S3 store.
+#
+# Kept byte-for-byte equivalent to Run 1 on purpose: the ONLY variable between the
+# two runs is the manifest store, so a difference in outcome can only be the store.
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.40.0'
+
+provider:
+  name: aws
+  region: {{ .Values.region }}
+  stage: {{ .Values.stage }}
+  memorySize: {{ .Values.memorySize }}
+  ecr:
+    images:
+      appimage:
+        uri: <+artifact.image>
+
+functions:
+  currentTime:
+    image: appimage
+    events:
+      - httpApi:
+          path: /time
+          method: get

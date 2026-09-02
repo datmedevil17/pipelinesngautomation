@@ -1,0 +1,3 @@
+# Declared first -- prepended after BOTH defaults, so it beats them.
+stage: qa
+memorySize: 512
