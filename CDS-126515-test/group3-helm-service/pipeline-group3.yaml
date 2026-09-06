@@ -1,0 +1,79 @@
+# CDS-126515 -- Group 3: Helm service, manifest source = Helm Chart.
+#
+# Same fixture/chart as group2, but the SERVICE ITSELF is Helm-type (not
+# Kubernetes-type with a Helm Chart manifest source). This is the only
+# group where a Helm service is actually exercised end to end.
+#
+# Toggle `optionalValuesYaml` and the extra `valuesPaths` entry between
+# values/present.yaml and a nonexistent missing-N.yaml, then re-run.
+# Same fallback-to-chart-defaults behavior as group2 applies here.
+#
+# STEP CHOICE: k8sHelmTemplateAction, render-only, proven in
+# smokeTest/pipeline-cds131003-smoke.yaml's "Helm" stage -- that stage
+# used a Helm-type service under the exact same runtime.kubernetes
+# block used below, so a Kubernetes runtime/infra is correct even
+# though the service itself is Helm-type.
+#
+# BEFORE RUNNING
+#   1. This repo is already pushed -- fetches from git, not your working copy.
+#   2. Create the Helm-type service described in README.md.
+#   3. Replace every <YOUR_...> placeholder below.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: Helm Service Optional Values
+      id: helmserviceoptionalvalues
+      service: <YOUR_GROUP3_SERVICE_ID>
+      environment:
+        id: <YOUR_K8S_ENV_ID>
+        deploy-to: <YOUR_K8S_INFRA_ID>
+      steps:
+
+        - name: signal evidence
+          id: signalevidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              OPTIONAL_OVERRIDES: ${{serviceOutput.manifests.optionalOverrides}}
+            script: |-
+              echo "overrides         : $OVERRIDES"
+              echo "optionalOverrides : $OPTIONAL_OVERRIDES"
+
+        - name: Render
+          id: helmrender
+          template:
+            uses: k8sHelmTemplateAction
+            with:
+              output: /harness/rendered-helm.yaml
+              print_manifest: true
+
+        - name: rendered chart
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              m=/harness/rendered-helm.yaml
+              if [ ! -f "$m" ]; then
+                echo "$m does not exist -- Render step likely failed. See its logs."
+                exit 1
+              fi
+              echo "===== contents ====="
+              cat "$m"
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

@@ -1,7 +1,0 @@
-# The REQUIRED values file for the CDS-126515 fixture.
-# Declared on the `k8s` manifest, which does NOT set optionalValuesYaml --
-# so this file missing must FAIL the deploy (that's the regression guard).
-appName: cds126515-k8s-required
-replicaCount: 2
-image: nginx:1.25
-port: 8080

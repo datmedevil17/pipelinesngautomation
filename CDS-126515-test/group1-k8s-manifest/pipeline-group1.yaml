@@ -1,0 +1,80 @@
+# CDS-126515 -- Group 1: Kubernetes service, manifest source = K8s Manifest.
+#
+# This pipeline is reused across all 6 sub-tests in this group's README.
+# Between runs, edit the service's ONE manifest entry:
+#   - toggle `optionalValuesYaml` true/false
+#   - change `valuesPaths` to point at values/present.yaml (exists) and/or
+#     missing-1.yaml / missing-2.yaml (never created, deliberately)
+# then re-run this same pipeline and read step 1 + step 2's result.
+#
+# BEFORE RUNNING
+#   1. This repo is already pushed -- fetches from git, not your working copy.
+#   2. Create the service described in README.md, using the connector you
+#      actually have pointed at this GitHub repo.
+#   3. Replace every <YOUR_...> placeholder below.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: K8s Manifest Optional Values
+      id: k8smanifestoptionalvalues
+      service: <YOUR_GROUP1_SERVICE_ID>
+      environment:
+        id: <YOUR_K8S_ENV_ID>
+        deploy-to: <YOUR_K8S_INFRA_ID>
+      steps:
+
+        # ===================================================================
+        # STEP 1 -- shows what Java resolved for THIS run's config. Always
+        # runs, never fails -- just evidence for reading against the table.
+        # ===================================================================
+        - name: signal evidence
+          id: signalevidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              OPTIONAL_OVERRIDES: ${{serviceOutput.manifests.optionalOverrides}}
+            script: |-
+              echo "overrides         : $OVERRIDES"
+              echo "optionalOverrides : $OPTIONAL_OVERRIDES"
+
+        # ===================================================================
+        # STEP 2 -- the actual test. Pass/fail here IS the result for
+        # whichever row of the README table you're currently configured for.
+        # ===================================================================
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+        # ===================================================================
+        # STEP 3 -- only reached if step 2 passes. Prints what actually
+        # rendered so you can tell "present.yaml applied" from "skipped,
+        # no defaults available" (a raw K8s manifest has no fallback values).
+        # ===================================================================
+        - name: rendered manifest
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              f=$(find /harness -type f -name deployment.yaml 2>/dev/null | sort | head -1)
+              echo "manifest: $f"
+              echo "===== contents ====="
+              cat "$f"
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

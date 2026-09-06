@@ -4,10 +4,7 @@ metadata:
   name: {{ .Values.appName }}
   labels:
     app: {{ .Values.appName }}
-    # Supplied ONLY by k8sValues/values-optional.yaml. If that file is
-    # missing and the deploy still succeeds, this renders as "<no value>" --
-    # that is the PASS case for CDS-126515, not a failure.
-    optional-feature-flag: {{ .Values.featureFlag }}
+    optional-marker: {{ .Values.featureFlag }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:

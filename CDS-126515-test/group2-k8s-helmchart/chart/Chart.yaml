@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cds126515-chart
+description: CDS-126515 optional-values-yaml fixture (K8s service, Helm Chart source)
+type: application
+version: 0.1.0
+appVersion: "1.0"

@@ -1,0 +1,9 @@
+# Extra override values file, declared separately from the chart via
+# manifest.spec.valuesPaths. If missing and optionalValuesYaml is true,
+# Helm renders using chart/values.yaml's defaults instead -- it does NOT
+# fail and does NOT render <no value>. See group README for the table.
+appName: cds126515-present
+replicaCount: 2
+image: nginx:1.25
+port: 8080
+featureFlag: present-value-applied

@@ -1,0 +1,82 @@
+# CDS-126515 -- Group 2: Kubernetes service, manifest source = Helm Chart.
+#
+# Same reuse pattern as group1: edit the service's manifest between runs
+# (toggle `optionalValuesYaml`, change the extra `valuesPaths` entry to
+# values/present.yaml or a nonexistent missing-N.yaml), then re-run.
+#
+# Key difference from group1: this chart has its OWN chart/values.yaml.
+# When the extra override file is missing and optionalValuesYaml=true,
+# Helm renders using the chart's defaults -- it does not fail, and fields
+# do NOT show "<no value>" (verified against helm v4.2.1: an unsupplied
+# key renders as an EMPTY string). See README.md's table for expectations.
+#
+# STEP CHOICE: uses k8sHelmTemplateAction (render-only, proven in
+# smokeTest/pipeline-cds131003-smoke.yaml), not k8sDryRunStep -- this
+# renders the chart without touching the cluster and without depending
+# on k8sApplyAction's current unrelated breakage.
+#
+# BEFORE RUNNING
+#   1. This repo is already pushed -- fetches from git, not your working copy.
+#   2. Create the service described in README.md.
+#   3. Replace every <YOUR_...> placeholder below.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: K8s HelmChart Optional Values
+      id: k8shelmchartoptionalvalues
+      service: <YOUR_GROUP2_SERVICE_ID>
+      environment:
+        id: <YOUR_K8S_ENV_ID>
+        deploy-to: <YOUR_K8S_INFRA_ID>
+      steps:
+
+        - name: signal evidence
+          id: signalevidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              OPTIONAL_OVERRIDES: ${{serviceOutput.manifests.optionalOverrides}}
+            script: |-
+              echo "overrides         : $OVERRIDES"
+              echo "optionalOverrides : $OPTIONAL_OVERRIDES"
+
+        # LOAD-BEARING -- `values` stays at its ${{manifests.overrides}}
+        # default on purpose; that default is what's under test.
+        - name: Render
+          id: helmrender
+          template:
+            uses: k8sHelmTemplateAction
+            with:
+              output: /harness/rendered-helm.yaml
+              print_manifest: true
+
+        - name: rendered chart
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              m=/harness/rendered-helm.yaml
+              if [ ! -f "$m" ]; then
+                echo "$m does not exist -- Render step likely failed. See its logs."
+                exit 1
+              fi
+              echo "===== contents ====="
+              cat "$m"
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m
