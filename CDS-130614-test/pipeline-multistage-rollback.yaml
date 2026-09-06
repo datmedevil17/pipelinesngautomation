@@ -1,0 +1,88 @@
+# CDS-130614 -- does `pipeline-rollback` actually roll back a PRECEDING,
+# already-succeeded stage? (Gap #1 from the post-fix review.)
+#
+# WHY THIS EXISTS
+#   Every earlier `pipeline-rollback` repro (G2, G2b) used a single-stage
+#   pipeline. `pipeline-rollback` is documented to roll back preceding
+#   SUCCEEDED stages, not the currently-failing stage's own `rollback:`
+#   block (that's `stage-rollback`'s job). With only one stage, there is
+#   nothing preceding to roll back, so `pipeline-rollback` was observed to
+#   be a no-op -- which proves it doesn't crash, but does NOT prove it can
+#   actually roll a stage back. That is still an open question this
+#   pipeline is designed to close.
+#
+# DESIGN
+#   Stage 1 (real service/env/infra) runs a forward step that echoes a
+#   distinctive marker, then SUCCEEDS. Its `rollback:` block echoes a
+#   second distinctive marker -- if that marker ever appears in the
+#   execution log, stage 1's rollback path really did run.
+#
+#   Stage 2 points `service.id` at a service that does not exist, forcing
+#   the Service node to fail. `service.on-failure: pipeline-rollback` is
+#   set at SERVICE scope (allowed there per UnifiedFailureStrategyHelperV1
+#   -- PIPELINE_ROLLBACK is in ALLOWED_ACTIONS_FOR_SERVICE).
+#
+# WHAT TO WATCH FOR
+#   - Stage 1 should show status SUCCESS from its forward run.
+#   - Stage 2's Service node should FAIL (bad service id).
+#   - PASS evidence: stage 1 transitions to/gets a ROLLBACK execution that
+#     runs "stage 1 rollback step" and prints "STAGE 1 ROLLBACK RAN --
+#     pipeline-rollback reached a preceding stage". Final pipeline status
+#     is still FAILED (rollback succeeding doesn't undo the failure verdict
+#     -- same as G1/G2's "rollback ran but pipeline stayed Failed" pattern).
+#   - FAIL/no-op evidence (matches the prior single-stage result): stage 2
+#     fails, nothing else happens to stage 1, stage 1 stays plain SUCCESS
+#     with no rollback execution attached to it, and the rollback marker
+#     never appears anywhere in the log.
+
+pipeline:
+  stages:
+    - name: CDS-130614 stage1 succeeds
+      id: cds130614stage1succeeds
+      runtime: shell
+      service:
+        id: sls_github_ecr_llale
+        ref: sls_github_ecr_llale
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: stage1 forward step
+          id: stage1forwardstep
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: echo "STAGE 1 FORWARD RAN"
+      rollback:
+        - name: stage1 rollback step
+          id: stage1rollbackstep
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: echo "STAGE 1 ROLLBACK RAN -- pipeline-rollback reached a preceding stage"
+
+    - name: CDS-130614 stage2 fails triggers pipeline-rollback
+      id: cds130614stage2failstriggerspipelinerollback
+      runtime: shell
+      service:
+        id: this_service_id_does_not_exist_cds130614
+        ref: this_service_id_does_not_exist_cds130614
+        on-failure:
+          - errors: [ all ]
+            action: pipeline-rollback
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: should never run
+          id: shouldneverrun2
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: echo ok
