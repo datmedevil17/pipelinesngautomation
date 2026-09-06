@@ -12,10 +12,14 @@
 # unsupplied key renders as an EMPTY string). See README.md's table for
 # expectations.
 #
-# STEP CHOICE: uses k8sHelmTemplateAction (render-only, proven in
-# smokeTest/pipeline-cds131003-smoke.yaml), not k8sDryRunStep -- this
-# renders the chart without touching the cluster and without depending
-# on k8sApplyAction's current unrelated breakage.
+# STEP CHOICE: uses k8sDryRunStep, same as group1 -- NOT k8sHelmTemplateAction.
+# k8sHelmTemplateAction's automatic manifest resolution turned out to be
+# scoped to genuinely Helm-type (NativeHelm) services (see group3, and the
+# smokeTest fixture it was proven against, both Helm-type services). On a
+# Kubernetes-type service carrying a HelmChart manifest -- this group's
+# shape -- it can't locate the manifest at all and fails with "Chart.yaml
+# file is missing". k8sDryRunStep is the general Kubernetes-service deploy
+# step and works uniformly regardless of the service's manifest source.
 #
 # BEFORE RUNNING
 #   1. This repo is already pushed -- fetches from git, not your working copy.
@@ -49,15 +53,10 @@ pipeline:
               echo "overrides         : $OVERRIDES"
               echo "optionalOverrides : $OPTIONAL_OVERRIDES"
 
-        # LOAD-BEARING -- `values` stays at its ${{manifests.overrides}}
-        # default on purpose; that default is what's under test.
-        - name: Render
-          id: helmrender
+        - name: Dry Run
+          id: dryrun
           template:
-            uses: k8sHelmTemplateAction
-            with:
-              output: /harness/rendered-helm.yaml
-              print_manifest: true
+            uses: k8sDryRunStep
 
         - name: rendered chart
           id: rendered
@@ -67,13 +66,10 @@ pipeline:
               connector: account.harnessImage
             shell: sh
             script: |-
-              m=/harness/rendered-helm.yaml
-              if [ ! -f "$m" ]; then
-                echo "$m does not exist -- Render step likely failed. See its logs."
-                exit 1
-              fi
+              f=$(find /harness -type f -name deployment.yaml 2>/dev/null | sort | head -1)
+              echo "manifest: $f"
               echo "===== contents ====="
-              cat "$m"
+              cat "$f"
 
       runtime:
         kubernetes:

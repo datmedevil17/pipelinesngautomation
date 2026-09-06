@@ -64,9 +64,19 @@ Same as group1: create the service, paste `pipeline-group2.yaml`, fill
 in placeholders, then for each row set `valuesPaths` /
 `optionalValuesYaml` on the service and re-run.
 
+## Step choice: k8sDryRunStep, not k8sHelmTemplateAction
+
+`k8sHelmTemplateAction`'s automatic manifest resolution turned out to be
+scoped to genuinely Helm-type (`NativeHelm`) services -- see group3, and
+the smoke-test fixture it was proven against, both Helm-type services.
+On this group's shape (Kubernetes-type service + HelmChart manifest) it
+can't locate the manifest at all and fails with `Chart.yaml file is
+missing`. `k8sDryRunStep`, the same step group1 uses, is the general
+Kubernetes-service deploy step and works regardless of manifest source.
+
 ## Test matrix
 
-| # | valuesPaths | optionalValuesYaml | Expected Render step | Expected rendered output |
+| # | valuesPaths | optionalValuesYaml | Expected Dry Run step | Expected rendered output |
 |---|---|---|---|---|
 | B1 | `[present.yaml]` | `false` (unset) | PASS | `appName=cds126515-present`, `optional-marker=present-value-applied` |
 | B2 | `[missing-1.yaml]` | `false` (unset) | **FAIL** -- regression guard: fetch fails on a non-optional missing file | not reached |

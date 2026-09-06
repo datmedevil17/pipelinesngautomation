@@ -1,0 +1,8 @@
+ytdtfhgjdfhjgdhfhgfjgj
+appName: cds126515-present
+kguyfygjhukgjgjh
+replicaCount:76554ew
+== 2
+image: nginx:1.25
+port: 8080
+featureFlag: present-value-applied
