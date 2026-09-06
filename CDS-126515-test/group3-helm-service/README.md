@@ -11,7 +11,7 @@ exercises a genuinely Helm-type service end to end.
       Chart.yaml
       values.yaml              chart's OWN defaults -- always present, never optional
       templates/deployment.yaml
-    values/present.yaml        the extra override file this group needs
+    values/present.yaml        the values file declared via valuesPaths on the manifest
     pipeline-group3.yaml
     README.md
 

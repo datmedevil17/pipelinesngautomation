@@ -62,9 +62,9 @@ repo's renamed remote) if it isn't `account.cdautomationtest`.
 | A1 | `[present.yaml]` | `false` (unset) | PASS | `appName=cds126515-present`, `optional-marker=present-value-applied` |
 | A2 | `[missing-1.yaml]` | `false` (unset) | **FAIL** -- regression guard: missing file on a non-optional manifest must still break the deploy | not reached |
 | A3 | `[present.yaml]` | `true` | PASS | same as A1 -- flag is a no-op when the file exists |
-| A4 | `[missing-1.yaml]` | `true` | **PASS** -- the actual fix under test | every field literally `{{ .Values.X }}`, unrendered (no values loaded at all) |
+| A4 | `[missing-1.yaml]` | `true` | **PASS** -- the actual fix under test | every field renders as `<no value>` (Go template's default for a missing key against an empty values map -- no values loaded at all) |
 | A5 | `[present.yaml, missing-1.yaml]` | `true` | PASS | same as A1/A3 -- present.yaml's fields applied, the missing path is silently dropped |
-| A6 | `[missing-1.yaml, missing-2.yaml]` | `true` | PASS | every field unrendered, same as A4 |
+| A6 | `[missing-1.yaml, missing-2.yaml]` | `true` | PASS | every field `<no value>`, same as A4 |
 
 ## Reading step 1 (`signal evidence`)
 

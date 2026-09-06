@@ -1,7 +1,9 @@
-# Extra override values file, declared separately from the chart via
-# manifest.spec.valuesPaths. If missing and optionalValuesYaml is true,
-# Helm renders using chart/values.yaml's defaults instead -- it does NOT
-# fail and does NOT render <no value>. See group README for the table.
+# The values file declared on the manifest's valuesPaths. Whether this
+# path resolves (this file exists) or not (point valuesPaths at a
+# missing-N.yaml instead) is what each test row is checking. If it
+# doesn't resolve and optionalValuesYaml is true, Helm renders using
+# chart/values.yaml's defaults instead -- it does NOT fail and does NOT
+# render <no value>. See group README for the table.
 appName: cds126515-present
 replicaCount: 2
 image: nginx:1.25

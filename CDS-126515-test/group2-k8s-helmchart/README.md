@@ -1,9 +1,12 @@
 # Group 2 -- Kubernetes service, manifest source = Helm Chart
 
 Same flag, different manifest type: a Kubernetes-type service whose
-manifest source is a Helm Chart. The extra override values file
-(declared via `valuesPaths` on the manifest, separate from the chart's
-own `chart/values.yaml`) is what `optionalValuesYaml` applies to.
+manifest source is a Helm Chart. `optionalValuesYaml` applies to the
+values file declared on the manifest's `valuesPaths` -- the test is
+whether that declared path resolves (the file exists) or not, and
+whether the flag lets an unresolved path be skipped instead of failing
+the render. This is separate from the chart's own `chart/values.yaml`,
+which is never declared via `valuesPaths` and is always present.
 
 ## Layout
 
@@ -11,7 +14,7 @@ own `chart/values.yaml`) is what `optionalValuesYaml` applies to.
       Chart.yaml
       values.yaml              chart's OWN defaults -- always present, never optional
       templates/deployment.yaml
-    values/present.yaml        the extra override file this group needs
+    values/present.yaml        the values file declared via valuesPaths on the manifest
     pipeline-group2.yaml
     README.md
 

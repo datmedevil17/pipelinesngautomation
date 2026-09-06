@@ -1,8 +1,8 @@
-# Chart's OWN defaults. These are what render if the extra override
-# values file (declared separately on the manifest's valuesPaths, see
-# ../values/present.yaml) is missing and optionalValuesYaml skips it --
-# Helm always falls back to its own values.yaml, unlike a raw K8s
-# manifest which has no built-in defaults. That is expected, not a bug.
+# Chart's OWN defaults. These are what render if the values file declared
+# on the manifest's valuesPaths (../values/present.yaml) does not resolve
+# and optionalValuesYaml skips it -- Helm always falls back to its own
+# values.yaml, unlike a raw K8s manifest which has no built-in defaults.
+# That is expected, not a bug.
 appName: chart-default
 replicaCount: 1
 image: busybox:latest

@@ -1,14 +1,16 @@
 # CDS-126515 -- Group 2: Kubernetes service, manifest source = Helm Chart.
 #
 # Same reuse pattern as group1: edit the service's manifest between runs
-# (toggle `optionalValuesYaml`, change the extra `valuesPaths` entry to
-# values/present.yaml or a nonexistent missing-N.yaml), then re-run.
+# (toggle `optionalValuesYaml`, change the `valuesPaths` entry to point at
+# values/present.yaml (resolves) or a nonexistent missing-N.yaml (does not
+# resolve)), then re-run.
 #
 # Key difference from group1: this chart has its OWN chart/values.yaml.
-# When the extra override file is missing and optionalValuesYaml=true,
-# Helm renders using the chart's defaults -- it does not fail, and fields
-# do NOT show "<no value>" (verified against helm v4.2.1: an unsupplied
-# key renders as an EMPTY string). See README.md's table for expectations.
+# When the configured values file does not resolve and optionalValuesYaml
+# =true, Helm renders using the chart's defaults -- it does not fail, and
+# fields do NOT show "<no value>" (verified against helm v4.2.1: an
+# unsupplied key renders as an EMPTY string). See README.md's table for
+# expectations.
 #
 # STEP CHOICE: uses k8sHelmTemplateAction (render-only, proven in
 # smokeTest/pipeline-cds131003-smoke.yaml), not k8sDryRunStep -- this
@@ -27,10 +29,10 @@ pipeline:
   stages:
     - name: K8s HelmChart Optional Values
       id: k8shelmchartoptionalvalues
-      service: <YOUR_GROUP2_SERVICE_ID>
+      service: service_kubernetes_0b81
       environment:
-        id: <YOUR_K8S_ENV_ID>
-        deploy-to: <YOUR_K8S_INFRA_ID>
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
       steps:
 
         - name: signal evidence
