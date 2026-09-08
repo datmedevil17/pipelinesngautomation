@@ -1,0 +1,48 @@
+# CDS-130653 bug repro -- Kubernetes unified service.
+#
+# No values file is declared and none exists in git. A TemplateManifest PreHook
+# writes manifests/templates/values.yaml at runtime, so the values file exists
+# on disk BEFORE templating is decided but AFTER the stage's only fetch has run.
+#
+# Fill in <YOUR_GIT_CONNECTOR>.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: main
+                repo: test-test
+                paths:
+                  - CDS-130653-bug-repro/manifests
+            # Nothing declared. The hook below is the ONLY source of values.
+            values: []
+    hooks:
+      - identifier: createValuesFile
+        type: PreHook
+        actions:
+          - TemplateManifest
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            # Locate the manifest dir the fetch/templating plugins read. Do not
+            # hardcode /harness/<repo>/... -- the checkout root differs per runtime.
+            d=$(find /harness -type d -path '*CDS-130653-bug-repro/manifests/templates' | head -1)
+            test -n "$d"
+            cat > "$d/values.yaml" <<'VALS'
+            proof: HOOK-CREATED-VALUES
+            replicaCount: 11
+            image: nginx:1.27
+            port: 8443
+            VALS
+            echo "pre-hook wrote $d/values.yaml"
+            cat "$d/values.yaml"
+        order: 1

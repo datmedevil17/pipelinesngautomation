@@ -1,0 +1,31 @@
+# CDS-130653 bug repro fixture.
+#
+# Every value here comes ONLY from a values file. There is deliberately NO
+# values.yaml next to this file: the k8s fetch plugin auto-discovers
+# templates/values.yaml, values.yaml, templates/values.yml and values.yml, and
+# finding one here would mask the bug. The pre-hook in service.yaml creates it
+# at runtime instead.
+#
+# If templating does not run, this stays a raw go-template and the k8s dry-run
+# fails on `replicas` not being an integer. That failure IS the repro.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds130653
+  labels:
+    proof: {{ .Values.proof }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: cds130653
+  template:
+    metadata:
+      labels:
+        app: cds130653
+    spec:
+      containers:
+        - name: app
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: {{ .Values.port }}
