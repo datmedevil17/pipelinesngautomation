@@ -1,0 +1,15 @@
+# Serverless manifest carrying a go-template expression, so the harness-rendering
+# fetch plugin RETURNS it (that plugin only returns files with an expression).
+#
+# CDS-130653 case 13: before the fix the manager unions every returned path into
+# manifests.overrides, and templating/serverless.yaml feeds overrides into
+# PLUGIN_VALUES_PATH. So this manifest is handed to serverless-template as a
+# VALUES file, and its own top-level keys get merged in as overrides.
+service: {{ .Values.service }}
+provider:
+  name: aws
+  region: {{ .Values.region }}
+  stage: {{ .Values.stage }}
+functions:
+  hello:
+    handler: handler.hello

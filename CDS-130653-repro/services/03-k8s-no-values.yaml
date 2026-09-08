@@ -1,0 +1,25 @@
+# CDS-130653 svc 03 -- k8s, no values file anywhere, nothing declared. Case 10.
+#
+# Paste into the unified service YAML editor. Replace every <YOUR_...> placeholder.
+# All paths are relative to the repo root of this test-test repo.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-130653-repro/fixtures/k8s-tpl
+            # k8s-tpl has no values.yaml and none is declared, so there is genuinely
+            # nothing to template. Templating MUST be skipped and the deploy MUST
+            # still fail on the raw go-template -- that is correct behaviour, not a bug.
+            values: []

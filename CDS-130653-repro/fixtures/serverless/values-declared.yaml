@@ -1,0 +1,6 @@
+# Declared under `values:`. MUST survive in overrides after the fix -- if the
+# manager ever switched to a blind intersection this file would be dropped,
+# because harness-rendering returns a body only for expression-bearing files.
+service: cds130653-svc
+region: us-east-1
+stage: qa

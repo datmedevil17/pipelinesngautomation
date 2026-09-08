@@ -1,0 +1,92 @@
+# CDS-130653 repro - CASE 16   [GROUP D]   *** KNOWN LIMITATION: FAILS BOTH WAYS ***
+# Swimlane    : kubernetes. values-declared.yaml IS declared; a pre-hook deletes it.
+# Service     : services/06-k8s-prehook-deletes-values.yaml
+# New image?  : NO.
+#
+# Documented deliberately so nobody files it as a regression of this fix.
+#
+# BEFORE FIX (predicted): FAILS. The declared path is in overrides from service
+#   resolution onward. The hook deletes the file. The templating plugin is handed
+#   a path that no longer exists and errors.
+# AFTER FIX (expected): STILL FAILS, for a longer reason. TemplatingStep's own
+#   fetch also fails - the k8s fetch plugin returns an error for a
+#   declared-but-missing values path, because shouldSkipOptionalValuesPath is
+#   false unless the path was declared OPTIONAL. saveTemplatingFetchOutput
+#   catches Exception and swallows it (by design - a fetch failure must not fail
+#   the deploy), so templating then runs on the stale list and fails the same way.
+#
+# Real fix needs the path marked optional, which the unified K8sManifest bean does
+# not expose today. Out of scope for CDS-130653.
+#
+# There is no `assert` step - the failure IS the result.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: Pre-hook deletes a declared values file
+      id: case16
+      service: <YOUR_SERVICE_ID>   # services/06-k8s-prehook-deletes-values.yaml
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+
+        # -------------------------------------------------------------------
+        # STEP 1 -- evidence. Reads the three manifest path lists as env vars.
+        # serviceOutput.manifests.* resolves at service-resolution time, so this
+        # step can run first and still see what the gate will see.
+        # -------------------------------------------------------------------
+        - name: evidence
+          id: evidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+              TO_RENDER: ${{serviceOutput.manifests.toRender}}
+              PRIMARY_TYPE: ${{serviceOutput.manifests.primary.uses}}
+            script: |-
+              set -u
+              echo "primary type : $PRIMARY_TYPE"
+              echo "overrides    : [$OVERRIDES]"
+              echo "toTemplate   : [$TO_TEMPLATE]"
+              echo "toRender     : [$TO_RENDER]"
+              echo
+
+              # An unresolved expression comes back empty, as the string "null", or as
+              # the literal expression text. Never write the expression delimiters in a
+              # script body -- Harness resolves them before sh sees this file, so the
+              # literal is detected by the inner path only.
+              blank() {
+                case "$1" in
+                  ""|null|null,*)             return 0 ;;
+                  *serviceOutput.manifests*)  return 0 ;;
+                  *)                          return 1 ;;
+                esac
+              }
+              if blank "$OVERRIDES";  then ov=empty; else ov=set; fi
+              if blank "$TO_TEMPLATE"; then tt=empty; else tt=set; fi
+              if blank "$TO_RENDER";   then tr=empty; else tr=set; fi
+              echo "overrides=$ov  toTemplate=$tt  toRender=$tr"
+              echo
+
+        # LOAD-BEARING. The injected Rendering/Templating steps hang off a step that
+        # consumes runtime.manifestPath; k8sDryRunStep's `manifests` input defaults to
+        # exactly that. Dry run renders and validates without touching workloads.
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 20m

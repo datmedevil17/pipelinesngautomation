@@ -1,0 +1,17 @@
+# Declared under `patches:` -- populates manifests.overrides, which
+# templating/kustomize.yaml feeds to PLUGIN_PATCHES_PATH.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds130653-kust
+  labels:
+    proof: TEMPLATING-RAN
+spec:
+  replicas: 7
+  template:
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.25
+          ports:
+            - containerPort: 8080

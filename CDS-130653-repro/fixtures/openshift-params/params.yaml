@@ -1,0 +1,5 @@
+# Declared params file. These are the ONLY legitimate PLUGIN_PARAMS_PATH inputs.
+PROOF: TEMPLATING-RAN
+REPLICAS: 7
+IMAGE: nginx:1.25
+PORT: 8080

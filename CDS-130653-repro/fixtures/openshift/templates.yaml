@@ -1,0 +1,42 @@
+# OpenShift Template. The openshift fetch plugin returns this file via
+# collectFileIfExists(templates.yaml) -- it is a MANIFEST, not a params file.
+#
+# CDS-130653 case 12: before the fix the manager unions every path the fetch
+# plugin returned into manifests.overrides, and templating/openshift.yaml feeds
+# overrides straight into PLUGIN_PARAMS_PATH. So oc-template is handed this
+# manifest as if it were a params file.
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: cds130653-oc
+parameters:
+  - name: PROOF
+    required: true
+  - name: REPLICAS
+    required: true
+  - name: IMAGE
+    required: true
+  - name: PORT
+    required: true
+objects:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: cds130653-oc
+      labels:
+        proof: ${PROOF}
+    spec:
+      replicas: ${{REPLICAS}}
+      selector:
+        matchLabels:
+          app: cds130653-oc
+      template:
+        metadata:
+          labels:
+            app: cds130653-oc
+        spec:
+          containers:
+            - name: app
+              image: ${IMAGE}
+              ports:
+                - containerPort: ${{PORT}}

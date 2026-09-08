@@ -1,0 +1,28 @@
+# CDS-130653 svc 08 -- openshift. Cases 3 and 12.
+#
+# Case 12 is the interesting one: the openshift fetch plugin returns
+# fixtures/openshift/templates.yaml (a MANIFEST) alongside the declared params file.
+# templating/openshift.yaml feeds manifests.overrides straight into PLUGIN_PARAMS_PATH.
+#   BEFORE: the union puts templates.yaml into overrides, so oc-template is handed a
+#           manifest as a params file.
+#   AFTER:  the plugin publishes templates.yaml under HARNESS_FILES_TO_RENDER only,
+#           so overrides holds params.yaml alone.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: oc_manifest
+          uses: openshift
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-130653-repro/fixtures/openshift
+            params:
+              - CDS-130653-repro/fixtures/openshift-params/params.yaml

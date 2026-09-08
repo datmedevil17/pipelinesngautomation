@@ -1,0 +1,45 @@
+# CDS-130653 svc 06 -- hook deletes a declared values file (case 16).
+#
+# This one documents a LIMITATION, not a fix. Read the prediction before running.
+#
+# values-declared.yaml is declared, so it is in manifests.overrides from service
+# resolution onward. The pre-hook deletes it from disk.
+#   BEFORE: templating plugin is handed a path that no longer exists -> templating FAILS.
+#   AFTER:  TemplatingStep's own fetch also fails (the k8s fetch plugin returns an error
+#           for a declared-but-missing values path). That failure is swallowed by
+#           saveTemplatingFetchOutput, so templating runs on the stale list and FAILS the
+#           same way. Fixing this needs the path marked optional, which the unified
+#           K8sManifest bean does not expose today.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-130653-repro/fixtures/k8s-tpl
+            values:
+              - CDS-130653-repro/fixtures/k8s-values/values-declared.yaml
+    hooks:
+      - identifier: deleteValuesFile
+        type: PreHook
+        actions:
+          - TemplateManifest
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            f=$(find /harness -type f -path '*CDS-130653-repro/fixtures/k8s-values/values-declared.yaml' | head -1)
+            test -n "$f"
+            rm -f "$f"
+            echo "pre-hook deleted $f"
+        order: 1

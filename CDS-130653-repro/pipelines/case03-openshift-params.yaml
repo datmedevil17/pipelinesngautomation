@@ -1,0 +1,156 @@
+# CDS-130653 repro - CASE 03   [GROUP A]
+# Swimlane    : openshift, params file declared
+# Service     : services/08-openshift-params.yaml
+# New image?  : NO.
+#
+# openshift is in TemplatingStep.MANIFEST_TYPES_ALWAYS_TEMPLATE, so the GATE IS
+# BYPASSED for this type both before and after the fix. Only k8s and helm-chart
+# ever reach the gate.
+#
+# BEFORE FIX (predicted): PASSES. Param substitution happens because templating
+#   always runs. The openshift defect is not the gate, it is the PAYLOAD -> case 12.
+# AFTER FIX (expected): PASSES.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: OpenShift params
+      id: case03
+      service: <YOUR_SERVICE_ID>   # services/08-openshift-params.yaml
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+
+        # -------------------------------------------------------------------
+        # STEP 1 -- evidence. Reads the three manifest path lists as env vars.
+        # serviceOutput.manifests.* resolves at service-resolution time, so this
+        # step can run first and still see what the gate will see.
+        # -------------------------------------------------------------------
+        - name: evidence
+          id: evidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+              TO_RENDER: ${{serviceOutput.manifests.toRender}}
+              PRIMARY_TYPE: ${{serviceOutput.manifests.primary.uses}}
+            script: |-
+              set -u
+              echo "primary type : $PRIMARY_TYPE"
+              echo "overrides    : [$OVERRIDES]"
+              echo "toTemplate   : [$TO_TEMPLATE]"
+              echo "toRender     : [$TO_RENDER]"
+              echo
+
+              # An unresolved expression comes back empty, as the string "null", or as
+              # the literal expression text. Never write the expression delimiters in a
+              # script body -- Harness resolves them before sh sees this file, so the
+              # literal is detected by the inner path only.
+              blank() {
+                case "$1" in
+                  ""|null|null,*)             return 0 ;;
+                  *serviceOutput.manifests*)  return 0 ;;
+                  *)                          return 1 ;;
+                esac
+              }
+              if blank "$OVERRIDES";  then ov=empty; else ov=set; fi
+              if blank "$TO_TEMPLATE"; then tt=empty; else tt=set; fi
+              if blank "$TO_RENDER";   then tr=empty; else tr=set; fi
+              echo "overrides=$ov  toTemplate=$tt  toRender=$tr"
+              echo
+
+        # LOAD-BEARING. The injected Rendering/Templating steps hang off a step that
+        # consumes runtime.manifestPath; k8sDryRunStep's `manifests` input defaults to
+        # exactly that. Dry run renders and validates without touching workloads.
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+        # -------------------------------------------------------------------
+        # STEP 3 -- assert the rendered manifest. MUST come after the dry-run step:
+        # the injected Rendering/Templating steps hang off the step that consumes
+        # runtime.manifestPath, so nothing is rendered before it.
+        # -------------------------------------------------------------------
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              MANIFEST=templates.yaml
+
+              echo "===== every $MANIFEST in the workspace ====="
+              found=0
+              for f in $(find /harness -type f -name "$MANIFEST" 2>/dev/null | sort); do
+                found=1
+                if grep -q '{{' "$f"; then state="RAW (go-template left)"; else state="RENDERED"; fi
+                echo "  [$state] $f"
+              done
+              if [ "$found" -eq 0 ]; then
+                echo "  (none)"
+                echo "===== /harness tree ====="
+                find /harness -maxdepth 7 2>/dev/null | sort | sed 's/^/    /'
+                echo "FATAL: no $MANIFEST anywhere."
+                exit 2
+              fi
+
+              m=""
+              for f in $(find /harness -type f -name "$MANIFEST" 2>/dev/null | sort); do
+                if ! grep -q '{{' "$f"; then m="$f"; break; fi
+              done
+              if [ -z "$m" ]; then
+                m=$(find /harness -type f -name "$MANIFEST" 2>/dev/null | sort | head -1)
+                echo
+                echo "WARNING: no rendered copy exists. Asserting against the raw $m, so"
+                echo "         every assert below will fail. Templating did not run --"
+                echo "         re-read step 1's evidence."
+              fi
+
+              echo
+              echo "manifest under test: $m"
+              echo "===== contents ====="
+              cat "$m"
+              echo
+
+              val() { sed -n "s/^[[:space:]]*-\{0,1\}[[:space:]]*$1:[[:space:]]*//p" "$m" | head -1 | tr -d "'\""; }
+              chk() {
+                if [ "$3" = "$2" ]; then printf '  PASS  %-22s %s\n' "$1" "$3"
+                else printf '  FAIL  %-22s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi
+              }
+
+              echo "===== asserts ====="
+              chk "PROOF param" "TEMPLATING-RAN" "$(val proof)"
+              chk "REPLICAS param" "7" "$(val replicas)"
+              chk "IMAGE param" "nginx:1.25" "$(val image)"
+              chk "PORT param" "8080" "$(val containerPort)"
+
+              echo
+              if grep -q '<no value>' "$m"; then
+                echo "  FAIL  unresolved <no value> left -- templating ran but the values"
+                echo "        file it was handed did not supply every key."
+                grep -n '<no value>' "$m" | sed 's/^/          /'
+                fail=1
+              else
+                echo "  PASS  no <no value> left"
+              fi
+              exit $fail
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 20m

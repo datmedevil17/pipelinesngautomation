@@ -1,0 +1,101 @@
+# CDS-130653 repro - CASE 19   [GROUP E: gate semantics]
+#                    *** THIS STAGE IS SUPPOSED TO FAIL ***
+# Swimlane    : kubernetes, empty manifest lists
+# Service     : services/03-k8s-no-values.yaml   (same as case 10)
+# New image?  : NO.
+#
+# Same service as case 10, different thing under the microscope. When a manifest
+# key is absent from the sweeping output, the expression resolves to the literal
+# four-character string "null" - not to "".
+#
+# BEFORE FIX: isEmpty("null") is FALSE, so the old gate treated "null" as a real
+#   value and could open templating with nothing to template.
+# AFTER FIX: isResolvedNonEmpty also rejects the literal "null" and the case where
+#   the resolved text still equals the expression itself.
+#
+# BEFORE FIX (predicted): FAILS at Dry Run either way, but read step 1: if it
+#   prints `overrides: [null]` while classifying it as `set`, that is the false
+#   positive. Then look at the deploy step - templating was attempted with an
+#   empty payload.
+# AFTER FIX (expected): FAILS at Dry Run, and the deploy step logs a clean skip
+#   decision. Step 1's blank() helper classifies "null" as empty.
+#
+# No `assert` step: step 1's output plus the Dry Run error text is the result.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: Unresolved expression must not open the gate
+      id: case19
+      service: <YOUR_SERVICE_ID>   # services/03-k8s-no-values.yaml
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+
+        # -------------------------------------------------------------------
+        # STEP 1 -- evidence. Reads the three manifest path lists as env vars.
+        # serviceOutput.manifests.* resolves at service-resolution time, so this
+        # step can run first and still see what the gate will see.
+        # -------------------------------------------------------------------
+        - name: evidence
+          id: evidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+              TO_RENDER: ${{serviceOutput.manifests.toRender}}
+              PRIMARY_TYPE: ${{serviceOutput.manifests.primary.uses}}
+            script: |-
+              set -u
+              echo "primary type : $PRIMARY_TYPE"
+              echo "overrides    : [$OVERRIDES]"
+              echo "toTemplate   : [$TO_TEMPLATE]"
+              echo "toRender     : [$TO_RENDER]"
+              echo
+
+              # An unresolved expression comes back empty, as the string "null", or as
+              # the literal expression text. Never write the expression delimiters in a
+              # script body -- Harness resolves them before sh sees this file, so the
+              # literal is detected by the inner path only.
+              blank() {
+                case "$1" in
+                  ""|null|null,*)             return 0 ;;
+                  *serviceOutput.manifests*)  return 0 ;;
+                  *)                          return 1 ;;
+                esac
+              }
+              if blank "$OVERRIDES";  then ov=empty; else ov=set; fi
+              if blank "$TO_TEMPLATE"; then tt=empty; else tt=set; fi
+              if blank "$TO_RENDER";   then tr=empty; else tr=set; fi
+              echo "overrides=$ov  toTemplate=$tt  toRender=$tr"
+              echo
+              echo "===== case 19: exact resolved text, byte for byte ====="
+              printf '  overrides  raw=[%s] len=%s\n' "$OVERRIDES" "${#OVERRIDES}"
+              printf '  toTemplate raw=[%s] len=%s\n' "$TO_TEMPLATE" "${#TO_TEMPLATE}"
+              printf '  toRender   raw=[%s] len=%s\n' "$TO_RENDER" "${#TO_RENDER}"
+              echo "  len=4 with the text null is the literal-null case the old gate"
+              echo "  mistook for a real value."
+              echo
+
+        # LOAD-BEARING. The injected Rendering/Templating steps hang off a step that
+        # consumes runtime.manifestPath; k8sDryRunStep's `manifests` input defaults to
+        # exactly that. Dry run renders and validates without touching workloads.
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 20m

@@ -1,0 +1,3 @@
+# Second declared values file. Only `port` differs, so a later-wins merge is
+# observable: port must end up 9090, everything else from values-declared.yaml.
+port: 9090

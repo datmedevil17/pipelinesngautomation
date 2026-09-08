@@ -1,0 +1,28 @@
+# CDS-130653 svc 07 -- helm-chart, chart-local values.yaml + one declared values file.
+# Cases 2 and 11 (dedupe: the same logical values must not appear twice, and the
+# declared file must WIN over the chart default).
+service:
+  uses: helm
+  with:
+    manifests:
+      sources:
+        - id: helm_manifest
+          uses: helm-chart
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-130653-repro/fixtures/helm-chart
+            values:
+              - CDS-130653-repro/fixtures/helm-values/values-declared.yaml
+            chart-name: null
+            chart-version: null
+            sub-chart-path: null
+            fetch-chart-metadata: false
+            skip-version: false
+            declarative-rollback: false

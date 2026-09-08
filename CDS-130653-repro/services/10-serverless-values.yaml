@@ -1,0 +1,30 @@
+# CDS-130653 svc 10 -- serverless. Cases 5 and 13.
+#
+# The serverless RENDER template uses the harness-rendering image, which returns a
+# file only when it carries an expression. serverlessUnified.yaml does;
+# manifest-no-expression.yaml does not.
+#   BEFORE: the union pushes serverlessUnified.yaml (a manifest) into overrides, and
+#           templating/serverless.yaml feeds overrides to PLUGIN_VALUES_PATH -- the
+#           manifest's own top-level keys get merged in as overrides.
+#   AFTER:  harness-rendering publishes it under HARNESS_FILES_TO_RENDER only, and
+#           values-declared.yaml (which it returns via OverridesPaths) under both.
+service:
+  uses: serverless
+  with:
+    manifests:
+      sources:
+        - id: sls_manifest
+          uses: serverless
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-130653-repro/fixtures/serverless
+            config-override-path: CDS-130653-repro/fixtures/serverless/serverlessUnified.yaml
+            values:
+              - CDS-130653-repro/fixtures/serverless/values-declared.yaml

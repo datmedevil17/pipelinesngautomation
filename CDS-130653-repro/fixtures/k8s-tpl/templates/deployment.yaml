@@ -1,0 +1,28 @@
+# CDS-130653 fixture. Every value below comes ONLY from a values file, so if
+# templating does not run this manifest stays a raw go-template and k8s dry-run
+# fails on `replicas` not being an integer. That failure IS the repro.
+#
+# There is deliberately NO values.yaml in this directory: the k8s fetch plugin
+# auto-discovers templates/values.yaml, values.yaml, templates/values.yml and
+# values.yml, and finding one here would mask the skip.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds130653
+  labels:
+    proof: {{ .Values.proof }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: cds130653
+  template:
+    metadata:
+      labels:
+        app: cds130653
+    spec:
+      containers:
+        - name: app
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: {{ .Values.port }}

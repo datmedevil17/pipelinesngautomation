@@ -1,0 +1,7 @@
+# Chart-local values.yaml. The helm fetch plugin auto-discovers this name, so it
+# is the "discovered" half of the dedupe test (case 11). Values here must LOSE to
+# helm-values/values-declared.yaml.
+proof: CHART-DEFAULT
+replicaCount: 1
+image: nginx:1.21
+port: 80

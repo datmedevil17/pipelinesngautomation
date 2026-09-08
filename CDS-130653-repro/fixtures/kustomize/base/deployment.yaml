@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds130653-kust
+  labels:
+    proof: BASE-DEFAULT
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cds130653-kust
+  template:
+    metadata:
+      labels:
+        app: cds130653-kust
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.21
+          ports:
+            - containerPort: 80

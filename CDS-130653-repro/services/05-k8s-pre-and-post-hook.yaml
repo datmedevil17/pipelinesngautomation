@@ -1,0 +1,61 @@
+# CDS-130653 svc 05 -- chain order proof (case 15).
+#
+# Expected order in the step's log tabs, top to bottom:
+#     createValuesFile  ->  templating-fetch-files  ->  manifest-templating  ->  afterTemplating
+#
+# BEFORE the fix there is no `templating-fetch-files` tab at all -- that tab
+# appearing between the pre-hook and manifest-templating IS the fix.
+#
+# The post-hook only stamps a marker file, so it cannot influence templating; it
+# exists to prove POST_HOOKS still runs last after the extra FETCH link was
+# inserted into the chain.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-130653-repro/fixtures/k8s-tpl-hook
+            values: []
+    hooks:
+      - identifier: createValuesFile
+        type: PreHook
+        actions:
+          - TemplateManifest
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            d=$(find /harness -type d -path '*CDS-130653-repro/fixtures/k8s-tpl-hook/templates' | head -1)
+            test -n "$d"
+            cat > "$d/values.yaml" <<'VALS'
+            proof: HOOK-CREATED-VALUES
+            replicaCount: 11
+            image: nginx:1.27
+            port: 8443
+            VALS
+            date -u +%s > /harness/cds130653-prehook.stamp
+            echo "PRE-HOOK RAN"
+        order: 1
+      - identifier: afterTemplating
+        type: PostHook
+        actions:
+          - TemplateManifest
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            test -f /harness/cds130653-prehook.stamp
+            date -u +%s > /harness/cds130653-posthook.stamp
+            echo "POST-HOOK RAN after templating"
+        order: 2

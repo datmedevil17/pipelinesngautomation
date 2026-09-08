@@ -1,0 +1,6 @@
+# Auto-discovered by the k8s fetch plugin (kubernetesDefaultValueFilePaths).
+# Nothing declares this file in the service yaml.
+proof: DISCOVERED-VALUES
+replicaCount: 3
+image: nginx:1.24
+port: 8081

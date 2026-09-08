@@ -1,0 +1,5 @@
+# Declared in the service yaml. Must WIN over helm-chart/values.yaml.
+proof: TEMPLATING-RAN
+replicaCount: 7
+image: nginx:1.25
+port: 8080

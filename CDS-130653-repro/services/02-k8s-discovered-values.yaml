@@ -1,0 +1,25 @@
+# CDS-130653 svc 02 -- k8s, values.yaml auto-discovered inside the manifest dir, nothing declared. Case 9.
+#
+# Paste into the unified service YAML editor. Replace every <YOUR_...> placeholder.
+# All paths are relative to the repo root of this test-test repo.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-130653-repro/fixtures/k8s-tpl-discovered
+            # Nothing declared on purpose. manifests.overrides starts EMPTY; the only
+            # values file is templates/values.yaml, found by the fetch plugin's
+            # kubernetesDefaultValueFilePaths auto-discovery.
+            values: []

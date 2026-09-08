@@ -1,0 +1,23 @@
+# CDS-130653 svc 01 -- k8s, one declared values file, no hooks. Cases 1, 7, 8, 19.
+#
+# Paste into the unified service YAML editor. Replace every <YOUR_...> placeholder.
+# All paths are relative to the repo root of this test-test repo.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-130653-repro/fixtures/k8s-tpl
+            values:
+              - CDS-130653-repro/fixtures/k8s-values/values-declared.yaml

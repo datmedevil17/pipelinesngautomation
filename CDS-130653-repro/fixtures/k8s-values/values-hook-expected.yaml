@@ -1,0 +1,7 @@
+# REFERENCE ONLY -- not used by any pipeline. This is the exact content the
+# case 14 / 15 pre-hook writes to <manifestDir>/templates/values.yaml at runtime.
+# Kept here so you can diff what actually landed on disk against what was intended.
+proof: HOOK-CREATED-VALUES
+replicaCount: 11
+image: nginx:1.27
+port: 8443

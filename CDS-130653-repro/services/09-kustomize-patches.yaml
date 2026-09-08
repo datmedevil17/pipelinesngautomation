@@ -1,0 +1,22 @@
+# CDS-130653 svc 09 -- kustomize + declared patches. Case 4.
+# kustomize is in MANIFEST_TYPES_ALWAYS_TEMPLATE, so the gate is bypassed entirely.
+# This case only guards that the extra FETCH chain link did not break the swimlane.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: kustomize_manifest
+          uses: kustomize
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-130653-repro/fixtures/kustomize
+            patches:
+              - CDS-130653-repro/fixtures/kustomize/patches/patch-replicas.yaml

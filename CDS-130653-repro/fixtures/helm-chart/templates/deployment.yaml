@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds130653-helm
+  labels:
+    proof: {{ .Values.proof }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: cds130653-helm
+  template:
+    metadata:
+      labels:
+        app: cds130653-helm
+    spec:
+      containers:
+        - name: app
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: {{ .Values.port }}

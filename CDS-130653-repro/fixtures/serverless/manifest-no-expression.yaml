@@ -1,0 +1,11 @@
+# Second manifest with NO expression, so harness-rendering does NOT return it.
+# Before the fix the union kept it in toRender anyway; after the fix the plugin's
+# published HARNESS_FILES_TO_RENDER is authoritative and this file drops out.
+# Nothing about the deploy should change either way -- it is only observable in
+# the serviceOutput.manifests.* evidence step.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cds130653-plain
+data:
+  note: no harness or go-template expression here

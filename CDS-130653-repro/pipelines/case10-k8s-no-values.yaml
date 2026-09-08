@@ -1,0 +1,86 @@
+# CDS-130653 repro - CASE 10   [GROUP C]   *** THIS STAGE IS SUPPOSED TO FAIL ***
+# Swimlane    : kubernetes, no values file anywhere, nothing declared
+# Service     : services/03-k8s-no-values.yaml
+# New image?  : NO.
+#
+# There is genuinely nothing to template, so skipping templating is CORRECT and
+# the dry run then correctly rejects the raw go-template.
+#
+# BEFORE FIX (predicted): FAILS at Dry Run. Fetch returned nothing, saveRenderingStepOutput
+#   hit `if (isEmpty(filePaths)) return new HashMap<>()`, all three lists stay
+#   empty, the gate closes, deployment.yaml keeps its {{ }} and kubectl rejects it.
+# AFTER FIX (expected): FAILS at Dry Run, SAME outcome, but the deploy step log
+#   must now say templating was skipped because there are no files to template
+#   rather than silently doing nothing. There is no `assert` step in this
+#   pipeline - the Dry Run failure IS the result. Read its error text.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: K8s genuinely nothing to template
+      id: case10
+      service: <YOUR_SERVICE_ID>   # services/03-k8s-no-values.yaml
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+
+        # -------------------------------------------------------------------
+        # STEP 1 -- evidence. Reads the three manifest path lists as env vars.
+        # serviceOutput.manifests.* resolves at service-resolution time, so this
+        # step can run first and still see what the gate will see.
+        # -------------------------------------------------------------------
+        - name: evidence
+          id: evidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+              TO_RENDER: ${{serviceOutput.manifests.toRender}}
+              PRIMARY_TYPE: ${{serviceOutput.manifests.primary.uses}}
+            script: |-
+              set -u
+              echo "primary type : $PRIMARY_TYPE"
+              echo "overrides    : [$OVERRIDES]"
+              echo "toTemplate   : [$TO_TEMPLATE]"
+              echo "toRender     : [$TO_RENDER]"
+              echo
+
+              # An unresolved expression comes back empty, as the string "null", or as
+              # the literal expression text. Never write the expression delimiters in a
+              # script body -- Harness resolves them before sh sees this file, so the
+              # literal is detected by the inner path only.
+              blank() {
+                case "$1" in
+                  ""|null|null,*)             return 0 ;;
+                  *serviceOutput.manifests*)  return 0 ;;
+                  *)                          return 1 ;;
+                esac
+              }
+              if blank "$OVERRIDES";  then ov=empty; else ov=set; fi
+              if blank "$TO_TEMPLATE"; then tt=empty; else tt=set; fi
+              if blank "$TO_RENDER";   then tr=empty; else tr=set; fi
+              echo "overrides=$ov  toTemplate=$tt  toRender=$tr"
+              echo
+
+        # LOAD-BEARING. The injected Rendering/Templating steps hang off a step that
+        # consumes runtime.manifestPath; k8sDryRunStep's `manifests` input defaults to
+        # exactly that. Dry run renders and validates without touching workloads.
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 20m
