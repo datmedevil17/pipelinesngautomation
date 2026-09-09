@@ -13,14 +13,21 @@
 #   4. handleHookResponses DISCARDS the hook's output vars
 #   5. willRunTemplating() reads the stale, empty toTemplate -> GATE CLOSES
 #   6. templating never runs, deployment.yaml keeps its {{ }}
-#   7. Dry Run FAILS
+#   7. dry-run cannot parse a go-template, warns "no valid files found", and
+#      still reports success -- so only the assert step catches it
 #
 # WHAT YOU SHOULD SEE (before the fix)
 #   - step `evidence`  -> overrides=empty  toTemplate=empty  toRender=empty
 #   - the stage's log tabs show   createValuesFile -> manifest-templating
 #     with NO `templating-fetch-files` tab between them
-#   - `Dry Run` FAILS on `replicas: {{ .Values.replicaCount }}` not being an integer
-#   - if it somehow reaches `assert`, you get "no rendered copy exists" and 4 FAILs
+#   - `Dry Run` does NOT hard-fail. A raw go-template is not valid YAML, so the
+#     plugin skips the file and still reports success:
+#         [WARNING] There were no valid files found in the at [[.../deployment.yaml]]
+#         [INFO] K8s Dry Run execution successfully finished
+#     That warning IS the repro. The bug is silent: the stage goes green and
+#     nothing is ever applied.
+#   - step `assert` then prints "BUG PRESENT: no rendered copy" and 4 FAILs, which
+#     is what actually turns the run red.
 #
 # WHAT YOU SHOULD SEE (after the fix)
 #   - a new log tab `templating-fetch-files` appears BETWEEN the pre-hook and
@@ -74,32 +81,52 @@ pipeline:
               echo "toRender     : [$TO_RENDER]"
               echo
 
-              # An unresolved expression comes back empty, as the string "null", or
-              # as the literal expression text. Never write the expression
-              # delimiters in a script body -- Harness resolves them before sh sees
-              # this file, so the literal is detected by the inner path only.
-              blank() {
+              # Three outcomes, and they are NOT the same thing:
+              #   unresolved -> Harness never substituted the expression, so the
+              #                 literal text reached sh. This says nothing about
+              #                 the gate; the evidence is simply unavailable here.
+              #   empty      -> resolved, and the list really is empty.
+              #   set        -> resolved and populated.
+              # Never write the expression delimiters in a script body: Harness
+              # resolves them before sh sees this file, so the literal is detected
+              # by the inner path only.
+              classify() {
                 case "$1" in
-                  ""|null|null,*)             return 0 ;;
-                  *serviceOutput.manifests*)  return 0 ;;
-                  *)                          return 1 ;;
+                  *serviceOutput.manifests*)  echo unresolved ;;
+                  ""|null|null,*)             echo empty ;;
+                  *)                          echo set ;;
                 esac
               }
-              if blank "$OVERRIDES";   then ov=empty; else ov=set; fi
-              if blank "$TO_TEMPLATE"; then tt=empty; else tt=set; fi
-              if blank "$TO_RENDER";   then tr=empty; else tr=set; fi
+              ov=$(classify "$OVERRIDES")
+              tt=$(classify "$TO_TEMPLATE")
+              tr=$(classify "$TO_RENDER")
               echo "overrides=$ov  toTemplate=$tt  toRender=$tr"
               echo
-              if [ "$tt" = empty ] && [ "$ov" = empty ]; then
-                echo "BUG PRESENT: nothing to template, so the gate will close and"
-                echo "             manifest-templating will be skipped -- even though"
-                echo "             the pre-hook creates a values file before it."
-              else
-                echo "gate will pass: the templating step has something to work with."
-              fi
+              case "$ov$tt$tr" in
+                *unresolved*)
+                  echo "INCONCLUSIVE: serviceOutput.manifests.* did not resolve in this"
+                  echo "              context, so this step cannot see the gate's input."
+                  echo "              Judge the run by the two signals that always work:"
+                  echo "                a) does the stage have a manifest-templating log tab?"
+                  echo "                b) does K8s Dry Run print"
+                  echo "                   'There were no valid files found' ?"
+                  echo "              (b) means the manifest was STILL a raw go-template"
+                  echo "              when dry-run read it -- templating never rendered it."
+                  ;;
+                emptyemptyempty|*empty*)
+                  echo "BUG PRESENT: nothing to template, so the gate closes and"
+                  echo "             manifest-templating is skipped -- even though the"
+                  echo "             pre-hook creates a values file before it."
+                  ;;
+                *)
+                  echo "gate will pass: the templating step has something to work with."
+                  ;;
+              esac
               echo
               echo "===== is the hook-written values file on disk yet? ====="
-              find /harness -type f -name values.yaml -path '*CDS-130653-bug-repro*' 2>/dev/null | sed 's/^/  /'
+              find /harness -type f -name values.yaml \
+                \( -path '*CDS-130653-bug-repro/*' -o -path '*k8s-tpl-hook/*' \) \
+                2>/dev/null | sort -u | sed 's/^/  /'
               echo "(this step runs before the pre-hook, so 'nothing listed' here is"
               echo " expected. The point is that the LISTS above are empty even though"
               echo " the file DOES exist by the time templating is decided.)"
@@ -128,33 +155,63 @@ pipeline:
             script: |-
               set -u
               fail=0
+
+              # Scope every search to the repro's own manifest dir. The whole repo
+              # is checked out under /harness/<n>/, so a bare
+              # `find /harness -name deployment.yaml` also matches every other
+              # fixture in the repo and will happily assert against the wrong file.
+              #
+              # Two patterns, so this works with either service:
+              #   CDS-130653-bug-repro/manifests            (this folder)
+              #   CDS-130653-repro/fixtures/k8s-tpl-hook    (the 16-case kit)
+              # One find with quoted -path patterns. An unquoted list in a `for`
+              # loop would be pathname-expanded against the CWD and could silently
+              # search the wrong thing.
               MANIFEST=deployment.yaml
 
-              echo "===== every $MANIFEST in the workspace ====="
-              found=0
-              for f in $(find /harness -type f -name "$MANIFEST" 2>/dev/null | sort); do
-                found=1
+              findall() {
+                find /harness -type f -name "$1" \
+                  \( -path '*CDS-130653-bug-repro/*' -o -path '*k8s-tpl-hook/*' \) \
+                  2>/dev/null | sort -u
+              }
+
+              echo "===== did the pre-hook write its values file? ====="
+              vf=$(findall values.yaml)
+              if [ -z "$vf" ]; then
+                echo "  NOT FOUND -- the pre-hook did not run, or wrote elsewhere."
+              else
+                for v in $vf; do echo "  $v"; sed 's/^/      /' "$v"; done
+              fi
+              echo
+
+              echo "===== every $MANIFEST inside this repro ====="
+              all=$(findall "$MANIFEST")
+              if [ -z "$all" ]; then
+                echo "  (none)"
+                echo "===== repro tree ====="
+                find /harness \
+                  \( -path '*CDS-130653-bug-repro/*' -o -path '*k8s-tpl-hook/*' \) \
+                  2>/dev/null | sort -u | sed 's/^/    /'
+                echo "FATAL: no $MANIFEST under the repro dirs."
+                echo "       Widen the -path patterns in findall() to whatever your"
+                echo "       service fetches."
+                exit 2
+              fi
+              for f in $all; do
                 if grep -q '{{' "$f"; then state="RAW (go-template left)"; else state="RENDERED"; fi
                 echo "  [$state] $f"
               done
-              if [ "$found" -eq 0 ]; then
-                echo "  (none)"
-                echo "===== /harness tree ====="
-                find /harness -maxdepth 7 2>/dev/null | sort | sed 's/^/    /'
-                echo "FATAL: no $MANIFEST anywhere."
-                exit 2
-              fi
 
               m=""
-              for f in $(find /harness -type f -name "$MANIFEST" 2>/dev/null | sort); do
+              for f in $all; do
                 if ! grep -q '{{' "$f"; then m="$f"; break; fi
               done
               if [ -z "$m" ]; then
-                m=$(find /harness -type f -name "$MANIFEST" 2>/dev/null | sort | head -1)
+                m=$(echo "$all" | head -1)
                 echo
-                echo "WARNING: no rendered copy exists. Asserting against the raw $m, so"
-                echo "         every assert below will fail. Templating did not run --"
-                echo "         re-read step 1's evidence."
+                echo "BUG PRESENT: no rendered copy of this repro's manifest exists."
+                echo "             Templating did not run. Asserting against the raw"
+                echo "             $m, so every assert below will fail by design."
               fi
 
               echo
@@ -169,11 +226,22 @@ pipeline:
                 else printf '  FAIL  %-22s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi
               }
 
+              # Two variants ship in this folder and they carry different values.
+              # Pick the expectations from whichever manifest actually got fetched.
+              case "$m" in
+                *manifests-with-values*)
+                  echo "variant B: values.yaml comes from git (no hook involved)"
+                  w_proof=GIT-VALUES; w_rep=7; w_img=nginx:1.25; w_port=9090 ;;
+                *)
+                  echo "variant A: values.yaml is written by the pre-hook at runtime"
+                  w_proof=HOOK-CREATED-VALUES; w_rep=11; w_img=nginx:1.27; w_port=8443 ;;
+              esac
+              echo
               echo "===== asserts ====="
-              chk "proof" "HOOK-CREATED-VALUES" "$(val proof)"
-              chk "replicas" "11" "$(val replicas)"
-              chk "image" "nginx:1.27" "$(val image)"
-              chk "containerPort" "8443" "$(val containerPort)"
+              chk "proof" "$w_proof" "$(val proof)"
+              chk "replicas" "$w_rep" "$(val replicas)"
+              chk "image" "$w_img" "$(val image)"
+              chk "containerPort" "$w_port" "$(val containerPort)"
 
               echo
               if grep -q '<no value>' "$m"; then

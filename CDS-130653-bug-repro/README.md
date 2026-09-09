@@ -24,12 +24,22 @@ pipeline.yaml                         evidence -> Dry Run -> assert
 
 | where | before the fix | after the fix |
 |---|---|---|
-| step `evidence` | `overrides=empty toTemplate=empty toRender=empty`, prints `BUG PRESENT` | lists are populated, prints `gate will pass` |
 | stage log tabs | `createValuesFile` -> `manifest-templating` | `createValuesFile` -> **`templating-fetch-files`** -> `manifest-templating` |
-| `Dry Run` | FAILS: `replicas: {{ .Values.replicaCount }}` is not an integer | passes |
-| step `assert` | "no rendered copy exists", 4 FAILs | 4/4 PASS + `no <no value> left` |
+| `K8s Dry Run` | `[WARNING] There were no valid files found ...` then `successfully finished` | no warning, files parsed |
+| step `assert` | `BUG PRESENT: no rendered copy`, 4 FAILs | 4/4 PASS + `no <no value> left` |
+| step `evidence` | see the caveat below | see the caveat below |
 
-The Dry Run failure IS the repro, not a broken fixture.
+**The dry-run warning IS the repro.** A raw go-template is not valid YAML, so the
+plugin skips the file and still reports success. The bug is therefore silent on
+its own: without the assert step the stage goes green and nothing is applied.
+
+### Caveat on the `evidence` step
+
+In the run of 2026-09-08 the `${{serviceOutput.manifests.*}}` expressions did not
+resolve at all -- the literal expression text reached the shell. The step now
+reports that as `unresolved` and says `INCONCLUSIVE`, instead of misreporting it
+as `empty`. Do not read anything into that step until the expressions resolve;
+judge the run by the log tabs and the dry-run warning.
 
 ## Why it happens
 

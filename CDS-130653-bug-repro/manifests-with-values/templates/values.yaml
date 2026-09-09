@@ -1,0 +1,7 @@
+# Auto-discovered by the k8s fetch plugin (it looks for templates/values.yaml,
+# values.yaml, templates/values.yml, values.yml). Nothing declares this file in
+# the service, and nothing needs to.
+proof: GIT-VALUES
+replicaCount: 7
+image: nginx:1.25
+port: 9090

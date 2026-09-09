@@ -1,0 +1,35 @@
+# CDS-130653 bug repro fixture -- variant B, no hooks needed.
+#
+# Unlike ../manifests, this directory DOES ship templates/values.yaml in git.
+# The k8s fetch plugin auto-discovers that name, so the values file is fetched
+# and lands in manifests.overrides / manifests.toRender.
+#
+# But TemplatingStep.willRunTemplating() gates on manifests.toTemplate, and for
+# a k8s manifest toTemplate is filled from `valuesPaths` only -- a field the
+# unified K8sManifest bean does not have. A unified k8s service can only spell
+# it `values:`, so toTemplate is always empty and the gate closes.
+#
+# Result: the values file exists, was fetched, and is sitting right next to this
+# manifest, and templating still never runs. That is the bug, with no runtime
+# file writing and no hook involved.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds130653
+  labels:
+    proof: {{ .Values.proof }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: cds130653
+  template:
+    metadata:
+      labels:
+        app: cds130653
+    spec:
+      containers:
+        - name: app
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: {{ .Values.port }}

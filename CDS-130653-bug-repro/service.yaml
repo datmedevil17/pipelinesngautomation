@@ -4,7 +4,14 @@
 # writes manifests/templates/values.yaml at runtime, so the values file exists
 # on disk BEFORE templating is decided but AFTER the stage's only fetch has run.
 #
-# Fill in <YOUR_GIT_CONNECTOR>.
+# NOTE: this MUST be a unified service (`service: uses: kubernetes`), not the
+# classic `serviceDefinition: type: Kubernetes` schema. Hooks and the
+# serviceOutput.manifests.* expressions only exist on the unified one.
+#
+# NOTE: `paths` points at the DIRECTORY that contains templates/, never at
+# deployment.yaml itself. The k8s fetch plugin only auto-discovers
+# templates/values.yaml when it is handed a directory -- given a file it logs
+# "Provided path is a file not a directory. Skipping it".
 service:
   uses: kubernetes
   with:
@@ -16,7 +23,7 @@ service:
             store:
               uses: github
               with:
-                connector: <YOUR_GIT_CONNECTOR>
+                connector: connector_Github_4137_classic
                 type: branch
                 branch: main
                 repo: test-test

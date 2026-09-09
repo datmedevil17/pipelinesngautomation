@@ -6,8 +6,10 @@
 # finding one here would mask the bug. The pre-hook in service.yaml creates it
 # at runtime instead.
 #
-# If templating does not run, this stays a raw go-template and the k8s dry-run
-# fails on `replicas` not being an integer. That failure IS the repro.
+# If templating does not run, this stays a raw go-template. The k8s dry-run does
+# NOT hard-fail on that: a go-template is not valid YAML, so it warns
+# "There were no valid files found" and still reports success. That warning, plus
+# the assert step going red, IS the repro.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
