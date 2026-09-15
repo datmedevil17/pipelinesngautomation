@@ -1,0 +1,86 @@
+# CDS-T15723 -- same Config+Inherit pair as rolling-istio-config-inherit/,
+# but legacy runs this against an INPUT SET supplying the fields left as
+# <+input> on the pipeline. Legacy status: PASSING/enabled.
+#
+# <needsSetup, open> -- no <+input> / input-set / pipeline-level `inputs:`
+# equivalent exists anywhere in the CD Unified DSL used by this repo or
+# template-library (verified by grep; see ../README.md "Runtime-input
+# note"). This is a genuine DSL-capability gap, not a porting choice --
+# flag it rather than fabricate a mechanism.
+#
+# Substitute procedure used here instead: the two Traffic Routing steps'
+# `with:` fields below are literals you edit by hand before each run,
+# mirroring the "edit and re-run the same pipeline" convention already used
+# in this repo (see CDS-126515-test/group1-k8s-manifest/pipeline-group1.yaml).
+# Two REQUIRED_VALUES blocks are marked below -- edit them, run, and treat
+# each run as one "input set" execution.
+#
+# BEFORE RUNNING: same as rolling-istio-config-inherit/ (git push, service,
+# Istio-installed K8s Direct infra, fill in every <YOUR_...>).
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-T15723 rolling istio runtime-input
+      id: cds_t15723
+      service: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+
+        # --- REQUIRED_VALUES (input-set substitute) -----------------------
+        # Edit resource_name / hosts / destinations below before each run.
+        # Run 1 ("input set A"): weights as shown (v1=100/v2=0).
+        # Run 2 ("input set B"): flip to v1=0/v2=100, or any other values --
+        # the point is the same pipeline runs unmodified except these fields.
+        - name: Traffic Routing Config (Istio, input-set values)
+          id: trConfig
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: istio
+              resource_name: trafficshift-vs
+              hosts:
+                - trafficshift
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 100
+                    - host: trafficshift-v2
+                      weight: 0
+
+        - name: Traffic Routing Inherit (Istio, input-set values)
+          id: trInherit
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: istio
+              resource_name: trafficshift-vs
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 0
+                    - host: trafficshift-v2
+                      weight: 100
+        # --- end REQUIRED_VALUES ------------------------------------------
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_ISTIO_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

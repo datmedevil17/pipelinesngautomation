@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trafficshift-v2
+  labels:
+    app: trafficshift
+    version: v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trafficshift
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: trafficshift
+        version: v2
+    spec:
+      containers:
+        - name: trafficshift
+          image: hashicorp/http-echo:latest
+          args:
+            - -text=v2
+            - -listen=:5000
+          ports:
+            - containerPort: 5000

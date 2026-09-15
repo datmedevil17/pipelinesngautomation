@@ -1,0 +1,129 @@
+# CDS-130618 fix verification -- run AFTER you have pushed a patched
+# k8s-apply image. See README.md "Phase 2".
+#
+# Same seeded layout as pipeline.yaml. The difference: the relative-path step
+# now supplies the manifest id, and the plugin joins
+#     <workspace>/<manifestId>/<path>
+#
+# Two ways to run this, pick one:
+#
+#  (A) RAW CONTAINER (recommended -- no template-library change needed).
+#      Use the `applyrelativefixed` step below as-is and set
+#      image: <your patched image tag>.
+#
+#  (B) VIA TEMPLATE. Requires the template-library branch
+#      fix/CDS-130618-k8s-apply-workspace-input to be published AND
+#      1.0.11/template.yaml's image line pointed at your patched tag.
+#      Then swap the raw step for:
+#
+#        - name: apply - relative path with manifest_id (expect PASS)
+#          id: applyrelativefixed
+#          template:
+#            uses: k8sApplyAction@1.0.11
+#            with:
+#              manifests:
+#                - templates/deployment.yaml
+#              manifest_id: cds130618manifest
+#              manifest_output_path: /tmp/cds130618-fix-out
+#
+# EXPECT: all steps green. The decisive log line in the last step is
+#     Searching for manifest files at path /harness/cds130618manifest/templates/deployment.yaml
+# (unfixed it read: "Searching for manifest files at path templates/deployment.yaml")
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-130618 fix verify
+      id: cds130618fix
+      service: service_kubernetes_0b81
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+
+        - name: seed manifest at workspace/manifestId/path
+          id: seedmanifest
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -e
+              mkdir -p /harness/cds130618manifest/templates
+              cat > /harness/cds130618manifest/templates/deployment.yaml <<'EOF'
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: cds130618-repro
+              data:
+                ticket: CDS-130618
+              EOF
+              find /harness/cds130618manifest -type f
+
+        # ===================================================================
+        # THE FIX UNDER TEST. Relative manifests + manifest_id.
+        #
+        # Replace <YOUR_PATCHED_IMAGE> with the tag you built and pushed,
+        # e.g. myregistry/k8s-apply:cds130618. If the registry needs auth,
+        # change `connector:` to a docker connector that can pull it.
+        # ===================================================================
+        - name: apply - relative path with manifest_id (expect PASS)
+          id: applyrelativefixed
+          run:
+            container:
+              image: <YOUR_PATCHED_IMAGE>
+              connector: account.harnessImage
+            env:
+              PLUGIN_MANIFEST_PATH: '["templates/deployment.yaml"]'
+              PLUGIN_MANIFEST_ID: cds130618manifest
+              PLUGIN_MANIFEST_OUTPUT_PATH: /tmp/cds130618-fix-out
+              PLUGIN_KUBECONFIG_PATH: ${{infra.kube_config_path}}
+              PLUGIN_NAMESPACE: ${{infra.namespace}}
+              PLUGIN_RELEASE_NAME: ${{infra.releaseName}}
+              PLUGIN_RELEASE_NUMBER: 0
+              PLUGIN_SERVICE_ID: ${{service.identifier}}
+              PLUGIN_ENVIRONMENT_ID: ${{env.identifier}}
+              PLUGIN_INFRA_ID: ${{infra.identifier}}
+              PLUGIN_INFRA_KEY: ${{infra.infrastructureKey}}
+              PLUGIN_SKIP_DRY_RUN: false
+              PLUGIN_RELEASE_PRUNING_ENABLED: false
+              PLUGIN_SERVER_SIDE_APPLY: false
+              PLUGIN_PRINT_MANIFESTS: true
+              PLUGIN_ENCRYPT_YAML_OUTPUT: false
+              PLUGIN_EXECUTE_DRY_RUN: false
+              PLUGIN_LOG_LEVEL: debug
+              PLUGIN_TIMEOUT: 5m
+
+        # ===================================================================
+        # REGRESSION GUARD. Absolute path must still pass through untouched.
+        # ===================================================================
+        - name: apply - absolute path still works (expect PASS)
+          id: applyabsolutefixed
+          run:
+            container:
+              image: <YOUR_PATCHED_IMAGE>
+              connector: account.harnessImage
+            env:
+              PLUGIN_MANIFEST_PATH: '["/harness/cds130618manifest/templates/deployment.yaml"]'
+              PLUGIN_MANIFEST_OUTPUT_PATH: /tmp/cds130618-fix-out-abs
+              PLUGIN_KUBECONFIG_PATH: ${{infra.kube_config_path}}
+              PLUGIN_NAMESPACE: ${{infra.namespace}}
+              PLUGIN_RELEASE_NAME: ${{infra.releaseName}}
+              PLUGIN_RELEASE_NUMBER: 0
+              PLUGIN_SERVICE_ID: ${{service.identifier}}
+              PLUGIN_ENVIRONMENT_ID: ${{env.identifier}}
+              PLUGIN_INFRA_ID: ${{infra.identifier}}
+              PLUGIN_INFRA_KEY: ${{infra.infrastructureKey}}
+              PLUGIN_LOG_LEVEL: debug
+              PLUGIN_TIMEOUT: 5m
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

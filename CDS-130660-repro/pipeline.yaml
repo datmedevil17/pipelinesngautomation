@@ -1,0 +1,139 @@
+# CDS-130660 repro -- K8s Rolling Deploy "prepare" phase can't find manifest
+# files when the stage runs under Shell runtime + local delegate (docker),
+# even though the identical stage succeeds under Kubernetes runtime.
+#
+# ---------------------------------------------------------------------------
+# WHAT THE BUG IS (per the ticket)
+# ---------------------------------------------------------------------------
+#   K8s runtime   (SUCCEEDS): manifests found at /harness/manifest_1/configmap.yaml
+#   Shell runtime (FAILS):    searches /tmp/harness/<UUID>/manifest_1/configmap.yaml
+#                             -> lstat ...: no such file or directory
+#
+# Investigation so far (see memory cds-130660-*, still open):
+#   - kubernetes-plugin's k8s-rolling/canary/bluegreen/deploy never resolve
+#     MANIFEST_PATH against any workspace base (unlike k8s-apply/k8s-delete,
+#     fixed under CDS-130618, which join against HARNESS_MANIFEST_DOWNLOAD_PATH).
+#   - BUT the failing path in the ticket is already ABSOLUTE
+#     (/tmp/harness/<UUID>/manifest_1/...), which means MANIFEST_PATH came in
+#     pre-resolved via the default ${{runtime.manifestPath}} flow. So the
+#     rolling step is searching in the RIGHT place relative to its own
+#     workspace -- the fetched/rendered manifest just isn't THERE under Shell
+#     runtime. Root cause is still being traced in harness-core (workspace
+#     sharing across steps in Shell runtime vs the shared /harness emptyDir
+#     in K8s runtime).
+#
+# ---------------------------------------------------------------------------
+# HOW TO READ THE RESULT
+# ---------------------------------------------------------------------------
+# Two stages, otherwise identical: same service/env/infra, same steps. Only
+# `runtime:` differs.
+#
+#   reconK8s / reconShell  -- always green, dump workspace state + tree
+#                              *before* the deploy step runs
+#   rollingDeployK8s       -- CONTROL, expect PASS
+#   rollingDeployShell     -- BUG, expect FAIL (manifest not found)
+#
+# LOOK FOR in each recon step's log:
+#   * "workspace env" -- HARNESS_WORKSPACE / HARNESS_MANIFEST_DOWNLOAD_PATH
+#   * the tree under the workspace -- is manifest_1/ (or your manifest's
+#     identifier) present at all, and if so, where relative to workspace?
+#
+# LOOK FOR in the Rolling Deploy step logs:
+#   [INFO] Searching for manifest files at path <X>
+#   [FATAL] ... lstat <X>: no such file or directory   (Shell runtime only)
+#
+# ---------------------------------------------------------------------------
+# BEFORE RUNNING
+# ---------------------------------------------------------------------------
+# Reuses the known-good triple from the other repros in this directory:
+#   service:     service_kubernetes_0b81
+#   environment: environment_env_2a02
+#   infra:       infrastructure_kubernetes_5a5e
+#   connector:   account.cdautomationtest
+# Swap in any K8s service (with a real manifest store) + env + infra if your
+# account differs. For the Shell stage you also need a local delegate
+# registered with the docker runner tag used below -- change the `delegate:`
+# selector to match your delegate's tags/name if it differs.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    # =========================================================================
+    # STAGE 1 -- CONTROL. Kubernetes runtime. EXPECT PASS.
+    # =========================================================================
+    - name: CDS-130660 rolling deploy - kubernetes runtime (control)
+      id: cds130660_k8s
+      service: service_kubernetes_0b81
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: recon - workspace before deploy (k8s)
+          id: reconK8s
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "===== CWD ====="
+              pwd
+              echo
+              echo "===== workspace env ====="
+              env | grep -i -E 'workspace|manifest' || echo "(none matched)"
+              echo
+              echo "===== tree under /harness (depth 4) ====="
+              find /harness -maxdepth 4 -not -path '*/.git/*' 2>/dev/null | sort
+
+        - name: Rolling Deploy (k8s runtime)
+          id: rollingDeployK8s
+          template:
+            uses: k8sRollingDeployStep
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =========================================================================
+    # STAGE 2 -- THE BUG. Shell runtime + local delegate (docker). EXPECT FAIL.
+    # =========================================================================
+    - name: CDS-130660 rolling deploy - shell runtime (bug)
+      id: cds130660_shell
+      service: service_kubernetes_0b81
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      delegate: docker
+      steps:
+        - name: recon - workspace before deploy (shell)
+          id: reconShell
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "===== CWD ====="
+              pwd
+              echo
+              echo "===== workspace env ====="
+              env | grep -i -E 'workspace|manifest' || echo "(none matched)"
+              echo
+              echo "===== tree under \$HARNESS_WORKSPACE (depth 4), falling back to /tmp/harness ====="
+              WS="${HARNESS_WORKSPACE:-/tmp/harness}"
+              echo "using: $WS"
+              find "$WS" -maxdepth 4 -not -path '*/.git/*' 2>/dev/null | sort
+
+        - name: Rolling Deploy (shell runtime)
+          id: rollingDeployShell
+          template:
+            uses: k8sRollingDeployStep
+
+      runtime: shell
+      timeout: 15m

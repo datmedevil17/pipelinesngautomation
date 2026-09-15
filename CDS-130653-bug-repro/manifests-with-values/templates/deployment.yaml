@@ -1,17 +1,21 @@
-# CDS-130653 bug repro fixture -- variant B, no hooks needed.
+# CDS-130653 -- variant B: the GREEN BASELINE, not a repro.
 #
-# Unlike ../manifests, this directory DOES ship templates/values.yaml in git.
-# The k8s fetch plugin auto-discovers that name, so the values file is fetched
-# and lands in manifests.overrides / manifests.toRender.
+# This directory ships templates/values.yaml in git. The k8s fetch plugin
+# auto-discovers that name, so the values file is fetched, lands in
+# manifests.overrides/toTemplate/toRender, the templating gate opens, and this
+# manifest is rendered into /harness/.harness/.k8s/k8s-template-*/ before K8s
+# Dry Run reads it. Verified on 2026-09-09: all four asserts pass.
 #
-# But TemplatingStep.willRunTemplating() gates on manifests.toTemplate, and for
-# a k8s manifest toTemplate is filled from `valuesPaths` only -- a field the
-# unified K8sManifest bean does not have. A unified k8s service can only spell
-# it `values:`, so toTemplate is always empty and the gate closes.
+# Keep it as the control. It proves the happy path works, so when variant A
+# (../manifests, values.yaml written by a pre-hook at runtime) fails, the
+# difference is WHEN the values file appears -- after the single fetch -- and
+# not something broken in templating itself.
 #
-# Result: the values file exists, was fetched, and is sitting right next to this
-# manifest, and templating still never runs. That is the bug, with no runtime
-# file writing and no hook involved.
+# One thing this run did show: overrides, toTemplate and toRender came back
+# byte-identical, each holding only values.yaml. That is
+# mergePathsWithManifestOutput's union -- the manager cannot tell the two roles
+# apart, which is what the plugin-side HARNESS_FILES_TO_TEMPLATE /
+# HARNESS_FILES_TO_RENDER keys fix.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

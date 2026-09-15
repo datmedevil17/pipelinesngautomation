@@ -1,0 +1,70 @@
+# CDS-130618 fix verification -- via the PATCHED k8sApplyAction@1.0.11
+# template (image line temporarily pointed at harnessdev/temp:cds130618).
+#
+# HOW TO USE
+#   1. Make sure you already re-published k8sApplyAction@1.0.11 in your
+#      Harness account with the image line changed to harnessdev/temp:cds130618
+#      (see template.yaml locally for the exact content to paste).
+#   2. Create a pipeline in your account from this file (swap service/env/
+#      infra/connector ids below if your account differs).
+#   3. Run it. Expect BOTH steps green.
+#
+# WHAT TO LOOK FOR (in "apply - relative path with manifest_id" step Logs):
+#   Searching for manifest files at path /harness/cds130618manifest/templates/deployment.yaml
+# (full path now -- compare with the unfixed run, which printed just
+#  "templates/deployment.yaml" and failed)
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-130618 fix verify (template)
+      id: cds130618fixtemplate
+      service: service_kubernetes_0b81
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+
+        # STEP 1 -- plant a manifest at <workspace>/<manifestId>/<path>,
+        # the same layout the backend uses for real service manifests.
+        - name: seed manifest at workspace/manifestId/path
+          id: seedmanifest
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -e
+              mkdir -p /harness/cds130618manifest/templates
+              cat > /harness/cds130618manifest/templates/deployment.yaml <<'EOF'
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: cds130618-repro
+              data:
+                ticket: CDS-130618
+              EOF
+              find /harness/cds130618manifest -type f
+
+        # STEP 2 -- the fix under test. Relative "manifests" path +
+        # manifest_id, via the patched template. EXPECT PASS.
+        - name: apply - relative path with manifest_id (expect PASS)
+          id: applyrelativefixed
+          template:
+            uses: k8sApplyAction@1.0.11
+            with:
+              manifests:
+                - templates/deployment.yaml
+              manifest_id: cds130618manifest
+              manifest_output_path: /tmp/cds130618-fix-out
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

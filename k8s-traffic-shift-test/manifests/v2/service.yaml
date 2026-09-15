@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: trafficshift-v2
+spec:
+  selector:
+    app: trafficshift
+    version: v2
+  ports:
+    - port: 80
+      targetPort: 5000

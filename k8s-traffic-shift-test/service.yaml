@@ -1,0 +1,25 @@
+# Plain K8s Unified service shared by every scenario in this folder.
+# Fetches both trafficshift-v1 and trafficshift-v2 (Deployment + Service each)
+# from this repo in one shot, so a single Rolling deploy stage puts both
+# versions live at once -- required for any traffic-split to have two real
+# backends to split between.
+#
+# Corresponds to legacy K8sStepConstant.K8S_SVC_PLAIN.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: main
+                repo: test-test
+                paths:
+                  - k8s-traffic-shift-test/manifests
+            values: []

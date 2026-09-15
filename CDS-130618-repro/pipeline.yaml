@@ -1,0 +1,196 @@
+# CDS-130618 / CDS-130617 repro -- K8s Apply does not resolve a relative
+# manifest path against the manifest directory.
+#
+# ---------------------------------------------------------------------------
+# WHAT THE BUG IS
+# ---------------------------------------------------------------------------
+# The backend writes service-fetched manifests to
+#     <workspace>/<manifestId>/<store path>
+# (harness-core, ManifestsStepUtils.getRunnerRelativePath).
+#
+# So when a user types a manifest path RELATIVE to their manifest -- e.g.
+# "templates/deployment.yaml" -- the plugin must join it as
+#     <workspace>/<manifestId>/templates/deployment.yaml
+#
+# The released k8s-apply (harnessdev/k8s-apply:0.0.2, built from
+# kubernetes-plugin @ 75d3f87) does no resolution at all: mapToApplyArgs
+# passes PLUGIN_MANIFEST_PATH straight through to
+# ManifestHelper.FetchManifestFilePaths, where filepath.Walk resolves it
+# against the container's CWD -- a directory that has no manifests in it.
+#
+# HARNESS_WORKSPACE is *not* the problem: it is injected correctly (=/harness)
+# and the plugin reads it fine. The missing piece is the <manifestId> segment.
+# The Args struct even declares ManifestID with the label "Identifier of the
+# manifest that relative manifest paths are resolved against" -- but nothing
+# ever uses it. Half-wired.
+#
+# ---------------------------------------------------------------------------
+# WHY THE OLD REPRO PASSED GREEN
+# ---------------------------------------------------------------------------
+# `manifests` defaults to ${{runtime.manifestPath}}, which resolves to an
+# ALREADY-ABSOLUTE path (the k8s-template step's output dir). Absolute paths
+# need no resolution, so the default flow never touches the broken code path.
+# You MUST override `manifests` with a relative path to see this bug.
+#
+# ---------------------------------------------------------------------------
+# HOW TO READ THE RESULT
+# ---------------------------------------------------------------------------
+# Steps run in order. The last step is expected to FAIL RED. No on-failure
+# ignore anywhere -- the status badge is trustworthy in this pipeline.
+#
+#   recon           green   -- prints where manifests really live
+#   seedmanifest    green   -- plants a manifest at a known <manifestId> path
+#   applyabsolute   green   -- CONTROL: same file, absolute path -> works
+#   applyrelative   RED     -- BUG: same file, relative path -> not found
+#
+# The pair applyabsolute/applyrelative is the whole proof: identical file,
+# identical step, the only difference is relative vs absolute.
+#
+# ---------------------------------------------------------------------------
+# BEFORE RUNNING
+# ---------------------------------------------------------------------------
+# Reuses the known-good triple from the other repros in this directory:
+#   service:     service_kubernetes_0b81
+#   environment: environment_env_2a02
+#   infra:       infrastructure_kubernetes_5a5e
+#   connector:   account.cdautomationtest
+# Swap in any K8s service + env + infra if your account differs.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-130618 repro
+      id: cds130618repro
+      service: service_kubernetes_0b81
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+
+        # ===================================================================
+        # STEP 1 -- RECON. Never fails. Read this output first.
+        #
+        # LOOK FOR:
+        #   * "CWD" -- the directory relative paths get resolved against by
+        #     the unfixed plugin.
+        #   * HARNESS_WORKSPACE is set (=/harness). Not the bug.
+        #   * The tree under /harness: the service's own manifests sit at
+        #     /harness/<manifestId>/... -- note that <manifestId> segment.
+        #     That segment is exactly what the plugin fails to add.
+        # ===================================================================
+        - name: recon - where do manifests actually live
+          id: recon
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "===== CWD (what a relative path resolves against) ====="
+              pwd
+              echo
+              echo "===== workspace env ====="
+              env | grep -i -E 'workspace|manifest' || echo "(none matched)"
+              echo
+              echo "===== tree under /harness (note the <manifestId> level) ====="
+              find /harness -maxdepth 4 -not -path '*/.git/*' 2>/dev/null | sort
+
+        # ===================================================================
+        # STEP 2 -- SEED. Plants one manifest at the exact layout the backend
+        # uses: <workspace>/<manifestId>/<path>. Deterministic, so the repro
+        # does not depend on what your service's manifest happens to contain.
+        #
+        # manifestId here = "cds130618manifest"
+        # relative path   = "templates/deployment.yaml"
+        # absolute path   = /harness/cds130618manifest/templates/deployment.yaml
+        # ===================================================================
+        - name: seed manifest at workspace/manifestId/path
+          id: seedmanifest
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -e
+              mkdir -p /harness/cds130618manifest/templates
+              cat > /harness/cds130618manifest/templates/deployment.yaml <<'EOF'
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: cds130618-repro
+              data:
+                ticket: CDS-130618
+              EOF
+              echo "===== seeded ====="
+              find /harness/cds130618manifest -type f
+              echo
+              echo "absolute path : /harness/cds130618manifest/templates/deployment.yaml"
+              echo "relative path : templates/deployment.yaml"
+              echo "the two apply steps below point at THIS SAME FILE."
+
+        # ===================================================================
+        # STEP 3 -- CONTROL. Absolute path. EXPECT GREEN.
+        #
+        # LOOK FOR in Logs:
+        #   Searching for manifest files at path /harness/cds130618manifest/templates/deployment.yaml
+        #   The following files will be used:
+        #   configmap/cds130618-repro created (or configured)
+        #   K8s Apply execution successfully finished
+        #
+        # This proves the file is readable, the cluster is reachable, and the
+        # step config is sound -- isolating the next step's failure to path
+        # resolution alone.
+        # ===================================================================
+        - name: apply - CONTROL absolute path (expect PASS)
+          id: applyabsolute
+          template:
+            uses: k8sApplyAction@1.0.10
+            with:
+              manifests:
+                - /harness/cds130618manifest/templates/deployment.yaml
+              manifest_output_path: /tmp/cds130618-out-absolute
+
+        # ===================================================================
+        # STEP 4 -- THE BUG. Relative path, same file. EXPECT RED FAILURE.
+        #
+        # LOOK FOR in Logs -- in this order:
+        #
+        #   1) the input dump proves the plugin HAS the workspace:
+        #        - [HARNESS_WORKSPACE] Plugin workspace set by Harness: /harness
+        #        - [MANIFEST_PATH] Json array of file or dir paths which contain manifests: [templates/deployment.yaml]
+        #
+        #   2) the smoking gun -- it searches the BARE relative path, with no
+        #      workspace and no manifestId prefix:
+        #        Searching for manifest files at path templates/deployment.yaml
+        #
+        #   3) the failure:
+        #        there is an issue with finding and reading files at [templates/deployment.yaml]: ... no such file or directory
+        #        Please check if provided manifests path [templates/deployment.yaml] is valid and contains the actual files
+        #        K8s Apply execution failed
+        #
+        # The file DOES exist (step 2 printed it, step 3 applied it). The
+        # plugin just never built the path <workspace>/<manifestId>/<path>.
+        #
+        # NOTE: 1.0.10 has no manifest_id input, so there is no way to supply
+        # the missing segment even if you wanted to. That is the other half of
+        # the ticket.
+        # ===================================================================
+        - name: apply - BUG relative path (expect FAIL)
+          id: applyrelative
+          template:
+            uses: k8sApplyAction@1.0.10
+            with:
+              manifests:
+                - templates/deployment.yaml
+              manifest_output_path: /tmp/cds130618-out-relative
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

@@ -1,0 +1,130 @@
+# CDS-T15722 -- same Config+Inherit pair as rolling-istio-config-inherit/,
+# but every provider/routing field is driven by a Harness expression instead
+# of a literal. Legacy status: @Test(enabled=false) (COMMUNITY/K8sDelegateExpUsage
+# groups) -- was never actually run in the legacy suite either.
+#
+# <needsSetup> legacy code points this scenario's infra at smiInfraName
+# despite it being an "Istio... using expressions" test -- looks like a
+# copy-paste bug in the legacy suite. Ported here against the Istio
+# namespace, since the test's own name and provider are Istio; flag if that
+# assumption is wrong.
+#
+# CD Unified has no pipeline-level `variables:` block and no `<+input>`
+# equivalent (see ../README.md). The verified expression mechanism that DOES
+# exist is cross-step output referencing: ${{steps.<id>.output.outputVariables.X}}
+# (confirmed in template-library, e.g. k8sBlueGreenStageScaleDownStep,
+# awsAgentCoreTrafficShiftStep). "setFields" below exports the values as
+# outputs; the two Traffic Routing steps reference them via that expression
+# instead of hardcoding literals -- this is what "expression-driven fields"
+# means for this port.
+#
+# BEFORE RUNNING: same as rolling-istio-config-inherit/ (git push, service,
+# Istio-installed K8s Direct infra, fill in every <YOUR_...>).
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-T15722 rolling istio expressions
+      id: cds_t15722
+      service: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+
+        # Sets the values that would be literals in the baseline scenario.
+        # Exported as outputs so later steps reference them via expression.
+        - name: set traffic-routing fields
+          id: setFields
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            output:
+              - PROVIDER
+              - RESOURCE_NAME
+              - HOST
+              - V1_WEIGHT_CONFIG
+              - V2_WEIGHT_CONFIG
+              - V1_WEIGHT_INHERIT
+              - V2_WEIGHT_INHERIT
+            script: |-
+              export PROVIDER=istio
+              export RESOURCE_NAME=trafficshift-vs
+              export HOST=trafficshift
+              export V1_WEIGHT_CONFIG=100
+              export V2_WEIGHT_CONFIG=0
+              export V1_WEIGHT_INHERIT=0
+              export V2_WEIGHT_INHERIT=100
+              echo "fields exported for expression-driven Traffic Routing steps"
+
+        - name: Traffic Routing Config (Istio, expression-driven)
+          id: trConfig
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: ${{steps.setFields.output.outputVariables.PROVIDER}}
+              resource_name: ${{steps.setFields.output.outputVariables.RESOURCE_NAME}}
+              hosts:
+                - ${{steps.setFields.output.outputVariables.HOST}}
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: ${{steps.setFields.output.outputVariables.V1_WEIGHT_CONFIG}}
+                    - host: trafficshift-v2
+                      weight: ${{steps.setFields.output.outputVariables.V2_WEIGHT_CONFIG}}
+
+        - name: Traffic Routing Inherit (Istio, expression-driven)
+          id: trInherit
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: ${{steps.setFields.output.outputVariables.PROVIDER}}
+              resource_name: ${{steps.setFields.output.outputVariables.RESOURCE_NAME}}
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: ${{steps.setFields.output.outputVariables.V1_WEIGHT_INHERIT}}
+                    - host: trafficshift-v2
+                      weight: ${{steps.setFields.output.outputVariables.V2_WEIGHT_INHERIT}}
+
+        # Assert the resolved values actually match what setFields declared --
+        # this is the "expression resolved correctly" half of the acceptance
+        # criteria, not just Success on the two Traffic Routing steps.
+        - name: assert expression resolution
+          id: assertResolved
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              PROVIDER: ${{steps.setFields.output.outputVariables.PROVIDER}}
+              V1W: ${{steps.setFields.output.outputVariables.V1_WEIGHT_INHERIT}}
+            script: |-
+              set -e
+              echo "resolved PROVIDER=$PROVIDER V1_WEIGHT_INHERIT=$V1W"
+              test "$PROVIDER" = "istio"
+              test "$V1W" = "0"
+              echo "PASS: expressions resolved to the declared values"
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_ISTIO_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

@@ -1,0 +1,15 @@
+# The host clients/verification steps actually call. Istio VirtualService
+# `hosts` targets this name; its `destinations` split traffic between the
+# real backends trafficshift-v1 / trafficshift-v2 (manifests/v1, manifests/v2).
+# Selector matches both versions so it stays routable even before any
+# VirtualService exists.
+apiVersion: v1
+kind: Service
+metadata:
+  name: trafficshift
+spec:
+  selector:
+    app: trafficshift
+  ports:
+    - port: 80
+      targetPort: 5000

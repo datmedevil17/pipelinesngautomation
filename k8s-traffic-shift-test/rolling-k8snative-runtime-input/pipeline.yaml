@@ -1,0 +1,76 @@
+# CDS-T15727 -- REFRAMED (see rolling-k8snative-config-inherit/). Legacy: SMI
+# Config+Inherit with fields left as runtime input, run against a fixed
+# input set. Legacy status: @Test(enabled=false), same SMI infra issue.
+#
+# Same substitution as rolling-istio-runtime-input/: no <+input>/input-set
+# equivalent exists in this DSL. Edit the REQUIRED_VALUES block below and
+# re-run for each "input set". See ../README.md.
+#
+# <needsSetup> same Gateway API prerequisite as rolling-k8snative-config-inherit/.
+#
+# BEFORE RUNNING: same as rolling-k8snative-config-inherit/.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-T15727 rolling k8s-native runtime-input
+      id: cds_t15727
+      service: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+
+        # --- REQUIRED_VALUES (input-set substitute) -----------------------
+        - name: Traffic Routing Config (k8s-native, input-set values)
+          id: trConfig
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: k8s-native
+              resource_name: trafficshift-route
+              hosts:
+                - trafficshift
+              gateways:
+                - trafficshift-gateway
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 100
+                    - host: trafficshift-v2
+                      weight: 0
+
+        - name: Traffic Routing Inherit (k8s-native, input-set values)
+          id: trInherit
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: k8s-native
+              resource_name: trafficshift-route
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 0
+                    - host: trafficshift-v2
+                      weight: 100
+        # --- end REQUIRED_VALUES -------------------------------------------
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_GATEWAY_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

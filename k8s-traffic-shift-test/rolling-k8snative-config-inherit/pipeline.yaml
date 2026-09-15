@@ -1,0 +1,81 @@
+# CDS-T15724 -- REFRAMED. Legacy: Rolling deploy + Config/Inherit against
+# provider SMI (TrafficSplit). Legacy status: @Test(enabled=false) -- SMI
+# clusters deleted (Slack C061DQPP0JW/p1742797675646059).
+#
+# The current kubernetes-plugin has no SMI provider at all -- only `istio`
+# and `k8s-native` (Gateway API HTTPRoute, not TrafficSplit). SMI cannot be
+# tested against this plugin under any namespace/infra. Ported here as the
+# `k8s-native` provider instead of a literal SMI port. See ../README.md.
+#
+# <needsSetup> requires a Gateway API Gateway resource named
+# `trafficshift-gateway` already provisioned in the namespace -- Gateway API
+# HTTPRoute requires at least one parentRef, unlike Istio's mesh-internal
+# VirtualService which can omit gateways entirely (see
+# rolling-istio-config-inherit/, which has none).
+#
+# BEFORE RUNNING: git push, create ../service.yaml, K8s Direct infra in a
+# cluster with Gateway API CRDs + a `trafficshift-gateway` Gateway already
+# applied in the target namespace. Fill in every <YOUR_...>.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-T15724 rolling k8s-native config-and-inherit
+      id: cds_t15724
+      service: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: Traffic Routing Config (k8s-native)
+          id: trConfig
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: k8s-native
+              resource_name: trafficshift-route
+              hosts:
+                - trafficshift
+              gateways:
+                - trafficshift-gateway
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 100
+                    - host: trafficshift-v2
+                      weight: 0
+
+        - name: Traffic Routing Inherit (k8s-native)
+          id: trInherit
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: k8s-native
+              resource_name: trafficshift-route
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 0
+                    - host: trafficshift-v2
+                      weight: 100
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_GATEWAY_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

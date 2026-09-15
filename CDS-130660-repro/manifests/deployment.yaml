@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds130660-repro
+  labels:
+    app: cds130660-repro
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cds130660-repro
+  template:
+    metadata:
+      labels:
+        app: cds130660-repro
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80

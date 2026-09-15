@@ -1,0 +1,95 @@
+# CDS-T15815 -- Rolling deploy + K8sTrafficRoutingConfig (Istio), then an
+# actual routing-verification step, executed TWICE (pinned to v1, then v2).
+# Legacy status: PASSING/enabled, no @Ignore.
+#
+# Legacy uses a service (K8sStepConstant.K8S_TRAFFIC_ROUTING_ISTIO_CHECK_ROUTING_SVC)
+# with a routing-verification step baked into the SERVICE definition. CD
+# Unified service hooks (`hooks:` on service.yaml, see CDS-130653-repro) only
+# fire on the `TemplateManifest` action -- there is no confirmed deploy/apply-
+# lifecycle hook action, so baking verification into the service isn't a
+# supported substitute here. Ported instead as an explicit pipeline step
+# after Traffic Routing Config, which is the same signal (does traffic
+# through the route actually land on the expected version) without
+# depending on an unverified hook action.
+#
+# Uses hashicorp/http-echo as the backend (returns a fixed string per pod --
+# v1 or v2 -- so "which version answered" is a deterministic curl assertion,
+# not a guess about an unrelated sample app's behavior).
+#
+# TWO RUNS, per the legacy input-set-v1 / input-set-v2 pair:
+#   Run 1: EXPECT_VERSION=v1, weights v1=100/v2=0 (as shown below)
+#   Run 2: edit EXPECT_VERSION to v2 and flip the weights, re-run
+# (Same "no <+input> equivalent -- edit and re-run" substitution as
+# rolling-istio-runtime-input/; see ../README.md.)
+#
+# BEFORE RUNNING: same as rolling-istio-config-inherit/ (git push, service,
+# Istio-installed K8s Direct infra, fill in every <YOUR_...>).
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-T15815 rolling istio config-and-checkrouting
+      id: cds_t15815
+      service: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+
+        # --- REQUIRED_VALUES (run 1 shown; edit for run 2) ----------------
+        - name: Traffic Routing Config (Istio)
+          id: trConfig
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: istio
+              resource_name: trafficshift-vs
+              hosts:
+                - trafficshift
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 100
+                    - host: trafficshift-v2
+                      weight: 0
+
+        - name: verify routing reaches expected version
+          id: verifyRouting
+          run:
+            container:
+              image: curlimages/curl
+              connector: account.harnessImage
+            shell: sh
+            env:
+              EXPECT_VERSION: v1
+            script: |-
+              set -e
+              for i in 1 2 3 4 5; do
+                got=$(curl -s --max-time 5 http://trafficshift.<YOUR_ISTIO_NAMESPACE>.svc.cluster.local/)
+                echo "attempt $i: got '$got', expect '$EXPECT_VERSION'"
+                if [ "$got" = "$EXPECT_VERSION" ]; then
+                  echo "PASS: traffic routed to $EXPECT_VERSION"
+                  exit 0
+                fi
+                sleep 2
+              done
+              echo "FAIL: never observed $EXPECT_VERSION"
+              exit 1
+        # --- end REQUIRED_VALUES -------------------------------------------
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_ISTIO_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

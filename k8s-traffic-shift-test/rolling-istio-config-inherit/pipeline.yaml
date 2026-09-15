@@ -1,0 +1,76 @@
+# CDS-T15721 -- Rolling deploy, then K8sTrafficRoutingConfig (Istio) immediately
+# followed by K8sTrafficRoutingInherit. Legacy status: PASSING/enabled.
+#
+# What this proves: the Config -> Inherit step PAIR works back to back --
+# Config creates the VirtualService (config_type: new), Inherit re-patches
+# its weights without re-declaring hosts/gateways (config_type: update).
+# No live traffic verification here -- that's rolling-istio-checkrouting/.
+#
+# BEFORE RUNNING
+#   1. Commit and push this repo -- the service fetches manifests from git.
+#   2. Create the service from ../service.yaml (fill in <YOUR_GIT_CONNECTOR>).
+#   3. Create env/infra: K8s Direct infra in an Istio-installed cluster,
+#      namespace labeled istio-injection=enabled. Fill in the placeholders
+#      below.
+#   4. Create the pipeline from this file and fill in every <YOUR_...>.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-T15721 rolling istio config-and-inherit
+      id: cds_t15721
+      service: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: Traffic Routing Config (Istio)
+          id: trConfig
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: istio
+              resource_name: trafficshift-vs
+              hosts:
+                - trafficshift
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 100
+                    - host: trafficshift-v2
+                      weight: 0
+
+        - name: Traffic Routing Inherit (Istio)
+          id: trInherit
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: istio
+              resource_name: trafficshift-vs
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 0
+                    - host: trafficshift-v2
+                      weight: 100
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_ISTIO_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

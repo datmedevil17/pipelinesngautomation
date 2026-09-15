@@ -1,0 +1,91 @@
+# CDS-T15816 -- REFRAMED (see ../README.md: no SMI provider in the current
+# plugin). Legacy: Blue-Green + SMI TrafficSplit cutover + checkrouting,
+# executed twice (v1/v2). Legacy status: @Test(enabled=false), SMI infra
+# issue -- same blocker as the Rolling SMI scenarios.
+#
+# Ported as `k8s-native` (Gateway API HTTPRoute) instead of a literal SMI
+# port. Same structure as bluegreen-istio-checkrouting/: one Config step
+# (BG's 0/100 cutover, no Inherit), then live routing verification, run
+# twice pinned to v1 then v2.
+#
+# <needsSetup> same Gateway API prerequisite as the rolling-k8snative-*
+# folders: a `trafficshift-gateway` Gateway resource must pre-exist in the
+# namespace before the HTTPRoute this step creates can attach to it.
+#
+# TWO RUNS: run 1 EXPECT_VERSION=v1 (weights below); run 2 flip EXPECT_VERSION
+# to v2 and weights to v1=0/v2=100.
+#
+# BEFORE RUNNING: git push, create ../service.yaml, Blue-Green-capable K8s
+# Direct infra in a cluster with Gateway API CRDs + a `trafficshift-gateway`
+# Gateway already applied in the target namespace. Fill in every <YOUR_...>.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-T15816 bluegreen k8s-native config-and-checkrouting
+      id: cds_t15816
+      service: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Blue-Green Deploy
+          id: bgDeploy
+          template:
+            uses: k8sBlueGreenDeployStep
+
+        # --- REQUIRED_VALUES (run 1 shown; edit for run 2) ----------------
+        - name: Traffic Routing Config (k8s-native, BG cutover)
+          id: trConfig
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: k8s-native
+              resource_name: trafficshift-route
+              hosts:
+                - trafficshift
+              gateways:
+                - trafficshift-gateway
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 100
+                    - host: trafficshift-v2
+                      weight: 0
+
+        - name: verify BG cutover reaches expected version
+          id: verifyRouting
+          run:
+            container:
+              image: curlimages/curl
+              connector: account.harnessImage
+            shell: sh
+            env:
+              EXPECT_VERSION: v1
+            script: |-
+              set -e
+              for i in 1 2 3 4 5; do
+                got=$(curl -s --max-time 5 http://trafficshift.<YOUR_GATEWAY_NAMESPACE>.svc.cluster.local/)
+                echo "attempt $i: got '$got', expect '$EXPECT_VERSION'"
+                if [ "$got" = "$EXPECT_VERSION" ]; then
+                  echo "PASS: BG cutover routed to $EXPECT_VERSION"
+                  exit 0
+                fi
+                sleep 2
+              done
+              echo "FAIL: never observed $EXPECT_VERSION"
+              exit 1
+        # --- end REQUIRED_VALUES -------------------------------------------
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_GATEWAY_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

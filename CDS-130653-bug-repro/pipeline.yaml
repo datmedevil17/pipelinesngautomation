@@ -125,7 +125,8 @@ pipeline:
               echo
               echo "===== is the hook-written values file on disk yet? ====="
               find /harness -type f -name values.yaml \
-                \( -path '*CDS-130653-bug-repro/*' -o -path '*k8s-tpl-hook/*' \) \
+                \( -path '*CDS-130653-bug-repro/*' -o -path '*k8s-tpl-hook/*' \
+                     -o -path '*/.harness/.k8s/*' \) \
                 2>/dev/null | sort -u | sed 's/^/  /'
               echo "(this step runs before the pre-hook, so 'nothing listed' here is"
               echo " expected. The point is that the LISTS above are empty even though"
@@ -152,6 +153,8 @@ pipeline:
               image: alpine
               connector: account.harnessImage
             shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
             script: |-
               set -u
               fail=0
@@ -171,7 +174,8 @@ pipeline:
 
               findall() {
                 find /harness -type f -name "$1" \
-                  \( -path '*CDS-130653-bug-repro/*' -o -path '*k8s-tpl-hook/*' \) \
+                  \( -path '*CDS-130653-bug-repro/*' -o -path '*k8s-tpl-hook/*' \
+                     -o -path '*/.harness/.k8s/*' \) \
                   2>/dev/null | sort -u
               }
 
@@ -190,7 +194,8 @@ pipeline:
                 echo "  (none)"
                 echo "===== repro tree ====="
                 find /harness \
-                  \( -path '*CDS-130653-bug-repro/*' -o -path '*k8s-tpl-hook/*' \) \
+                  \( -path '*CDS-130653-bug-repro/*' -o -path '*k8s-tpl-hook/*' \
+                     -o -path '*/.harness/.k8s/*' \) \
                   2>/dev/null | sort -u | sed 's/^/    /'
                 echo "FATAL: no $MANIFEST under the repro dirs."
                 echo "       Widen the -path patterns in findall() to whatever your"
@@ -227,15 +232,20 @@ pipeline:
               }
 
               # Two variants ship in this folder and they carry different values.
-              # Pick the expectations from whichever manifest actually got fetched.
-              case "$m" in
-                *manifests-with-values*)
-                  echo "variant B: values.yaml comes from git (no hook involved)"
-                  w_proof=GIT-VALUES; w_rep=7; w_img=nginx:1.25; w_port=9090 ;;
-                *)
-                  echo "variant A: values.yaml is written by the pre-hook at runtime"
-                  w_proof=HOOK-CREATED-VALUES; w_rep=11; w_img=nginx:1.27; w_port=8443 ;;
-              esac
+              # Ask the fetch output which one the service actually pointed at.
+              # Two wrong sources to avoid here:
+              #   "$m"   -- when templating runs it writes a COPY into
+              #             /harness/.harness/.k8s/k8s-template-*/, so "$m" is
+              #             that output path and carries no trace of the fixture.
+              #   "$all" -- the whole repo is checked out, so BOTH fixtures are
+              #             always on disk regardless of which one is in use.
+              if echo "$OVERRIDES" | grep -q 'manifests-with-values'; then
+                echo "variant B: values.yaml comes from git (no hook involved)"
+                w_proof=GIT-VALUES; w_rep=7; w_img=nginx:1.25; w_port=9090
+              else
+                echo "variant A: values.yaml is written by the pre-hook at runtime"
+                w_proof=HOOK-CREATED-VALUES; w_rep=11; w_img=nginx:1.27; w_port=8443
+              fi
               echo
               echo "===== asserts ====="
               chk "proof" "$w_proof" "$(val proof)"

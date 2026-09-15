@@ -1,0 +1,120 @@
+# CDS-T15726 -- REFRAMED (see rolling-k8snative-config-inherit/ for why: no
+# SMI provider in the current plugin). Legacy: SMI Config+Inherit with
+# fields driven by expressions instead of literals. Legacy status:
+# @Test(enabled=false), same SMI infra issue as T15724.
+#
+# Same expression mechanism as rolling-istio-expressions/:
+# ${{steps.<id>.output.outputVariables.X}} -- no <+input>/pipeline
+# `variables:` equivalent exists in this DSL (see ../README.md).
+#
+# <needsSetup> same Gateway API prerequisite as rolling-k8snative-config-inherit/
+# (a `trafficshift-gateway` Gateway resource must pre-exist in the namespace).
+#
+# BEFORE RUNNING: same as rolling-k8snative-config-inherit/.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-T15726 rolling k8s-native expressions
+      id: cds_t15726
+      service: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: set traffic-routing fields
+          id: setFields
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            output:
+              - PROVIDER
+              - RESOURCE_NAME
+              - HOST
+              - GATEWAY
+              - V1_WEIGHT_CONFIG
+              - V2_WEIGHT_CONFIG
+              - V1_WEIGHT_INHERIT
+              - V2_WEIGHT_INHERIT
+            script: |-
+              export PROVIDER=k8s-native
+              export RESOURCE_NAME=trafficshift-route
+              export HOST=trafficshift
+              export GATEWAY=trafficshift-gateway
+              export V1_WEIGHT_CONFIG=100
+              export V2_WEIGHT_CONFIG=0
+              export V1_WEIGHT_INHERIT=0
+              export V2_WEIGHT_INHERIT=100
+              echo "fields exported for expression-driven Traffic Routing steps"
+
+        - name: Traffic Routing Config (k8s-native, expression-driven)
+          id: trConfig
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: ${{steps.setFields.output.outputVariables.PROVIDER}}
+              resource_name: ${{steps.setFields.output.outputVariables.RESOURCE_NAME}}
+              hosts:
+                - ${{steps.setFields.output.outputVariables.HOST}}
+              gateways:
+                - ${{steps.setFields.output.outputVariables.GATEWAY}}
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: ${{steps.setFields.output.outputVariables.V1_WEIGHT_CONFIG}}
+                    - host: trafficshift-v2
+                      weight: ${{steps.setFields.output.outputVariables.V2_WEIGHT_CONFIG}}
+
+        - name: Traffic Routing Inherit (k8s-native, expression-driven)
+          id: trInherit
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: ${{steps.setFields.output.outputVariables.PROVIDER}}
+              resource_name: ${{steps.setFields.output.outputVariables.RESOURCE_NAME}}
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: ${{steps.setFields.output.outputVariables.V1_WEIGHT_INHERIT}}
+                    - host: trafficshift-v2
+                      weight: ${{steps.setFields.output.outputVariables.V2_WEIGHT_INHERIT}}
+
+        - name: assert expression resolution
+          id: assertResolved
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              PROVIDER: ${{steps.setFields.output.outputVariables.PROVIDER}}
+              V1W: ${{steps.setFields.output.outputVariables.V1_WEIGHT_INHERIT}}
+            script: |-
+              set -e
+              echo "resolved PROVIDER=$PROVIDER V1_WEIGHT_INHERIT=$V1W"
+              test "$PROVIDER" = "k8s-native"
+              test "$V1W" = "0"
+              echo "PASS: expressions resolved to the declared values"
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_GATEWAY_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
