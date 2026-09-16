@@ -1,5 +1,11 @@
 # EcsScalableTargetDefinition manifest == raw AWS RegisterScalableTargetRequest
-# (minus serviceNamespace/resourceId/scalableDimension -- Harness fills those
-# in for whichever service this gets attached to).
+# (minus resourceId -- Harness fills that in from cluster/service name;
+# EcsCommandTaskNGHelper#registerScalableTargets only sets resourceId on the
+# parsed builder. scalableDimension/serviceNamespace are NOT auto-populated --
+# they must be present here or AWS rejects the request with
+# "Value null at 'scalableDimension'/'serviceNamespace' failed to satisfy
+# constraint: Member must not be null").
+scalableDimension: ecs:service:DesiredCount
+serviceNamespace: ecs
 minCapacity: 1
 maxCapacity: 3
