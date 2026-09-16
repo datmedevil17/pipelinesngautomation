@@ -1,0 +1,32 @@
+# CDS-131309 -- v0 (NG classic) sanity check pipeline.
+# Just a Custom stage with one ShellScript step -- no service/env needed.
+# Replace <YOUR_PROJECT_ID> / <YOUR_ORG_ID> before running.
+
+pipeline:
+  name: CDS-131309 v0 sanity check
+  identifier: cds131309_v0_sanity_check
+  projectIdentifier: <YOUR_PROJECT_ID>
+  orgIdentifier: <YOUR_ORG_ID>
+  tags: {}
+  stages:
+    - stage:
+        name: sanity check
+        identifier: sanitycheck
+        description: ""
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  name: check setup
+                  identifier: checksetup
+                  type: ShellScript
+                  spec:
+                    shell: Bash
+                    onDelegate: true
+                    source:
+                      type: Inline
+                      spec:
+                        script: |-
+                          echo "Delegate reachable, step executed."
+                          aws sts get-caller-identity || echo "no AWS connector wired up yet"

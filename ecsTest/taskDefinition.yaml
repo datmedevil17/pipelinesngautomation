@@ -1,0 +1,13 @@
+# EcsTaskDefinition manifest == raw AWS RegisterTaskDefinitionRequest.
+family: cds131309-task
+networkMode: awsvpc
+requiresCompatibilities:
+  - FARGATE
+cpu: "256"
+memory: "512"
+containerDefinitions:
+  - name: web
+    image: public.ecr.aws/nginx/nginx:latest
+    portMappings:
+      - containerPort: 80
+        protocol: tcp

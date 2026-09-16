@@ -1,0 +1,5 @@
+# EcsScalableTargetDefinition manifest == raw AWS RegisterScalableTargetRequest
+# (minus serviceNamespace/resourceId/scalableDimension -- Harness fills those
+# in for whichever service this gets attached to).
+minCapacity: 1
+maxCapacity: 3

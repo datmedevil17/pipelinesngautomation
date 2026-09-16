@@ -1,0 +1,27 @@
+# EcsScalingPolicyDefinition manifest == raw AWS PutScalingPolicyRequest
+# (minus resourceId -- Harness fills that in for the current service).
+#
+# THIS IS THE REPRO: resourceLabel is hardcoded to the PROD target group --
+# exactly how a real user authors it (pointing at whatever's live today).
+#
+# Pre-fix: attachScalingPolicies() only rewrote resourceId to the new green
+# service and left this resourceLabel untouched -> AWS rejects the policy
+# with "Target group is not attached to resource" because the green service
+# is only attached to the STAGE target group at this point in the deploy.
+#
+# Post-fix: Harness detects resourceLabel's target group isn't one the
+# service is attached to, resolves the service's actual target group via
+# DescribeServices, and rewrites just the targetgroup/<name>/<id> suffix
+# to match -- ALB name/id prefix is left untouched.
+#
+# Replace <PROD_TARGET_GROUP_RESOURCE_LABEL> with:
+#   app/<alb-name>/<alb-id>/targetgroup/<prod-tg-name>/<prod-tg-id>
+policyName: cds131309-alb-request-count-policy
+policyType: TargetTrackingScaling
+targetTrackingScalingPolicyConfiguration:
+  targetValue: 1000
+  predefinedMetricSpecification:
+    predefinedMetricType: ALBRequestCountPerTarget
+    resourceLabel: <PROD_TARGET_GROUP_RESOURCE_LABEL>
+  scaleInCooldown: 60
+  scaleOutCooldown: 60

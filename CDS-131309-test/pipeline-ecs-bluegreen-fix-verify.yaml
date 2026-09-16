@@ -1,0 +1,149 @@
+# CDS-131309 -- v0 (NG classic) pipeline to verify the resourceLabel fix.
+# Reuses the account's known-working ECS Blue/Green setup (service
+# EcsService1_lF, env EcsEnv_Tt, ALB ecs-donot-delete-todolist, delegate
+# localdelegate) instead of placeholder infra.
+#
+# WHAT THIS TESTS
+#   ECS Blue Green Create Service attaches an ALBRequestCountPerTarget
+#   scaling policy whose manifest resourceLabel is hardcoded to the PROD
+#   target group (see ecsTest/scalingPolicy.yaml). At the point Create
+#   Service runs, the new (green) service is only attached to the STAGE
+#   target group.
+#     Pre-fix:  Create Service step FAILS -- AWS rejects PutScalingPolicy
+#               with "Target group is not attached to resource ...".
+#     Post-fix: Create Service step SUCCEEDS -- Harness rewrites
+#               resourceLabel's targetgroup/... suffix to the stage target
+#               group before calling PutScalingPolicy. Check the step log for
+#               an "Auto-updating resourceLabel for policy ..." INFO line.
+#
+# BEFORE RUNNING
+#   1. Add ecsTest/scalingPolicy.yaml as an EcsScalingPolicyDefinition
+#      manifest on the EcsService1_lF service (its task/service/scalable
+#      target manifests should already be there from prior runs).
+#   2. Fill <PROD_TARGET_GROUP_RESOURCE_LABEL> in ecsTest/scalingPolicy.yaml
+#      with EcsService1_lF's actual prod target group
+#      (app/ecs-donot-delete-todolist/<alb-id>/targetgroup/<prod-tg-name>/<tg-id>)
+#      -- get it from `aws elbv2 describe-rules --listener-arn <prodListener>`.
+#   3. infrastructureDefinitions is a runtime input below -- pick the ECS
+#      infra def under EcsEnv_Tt when you run it.
+
+pipeline:
+  name: CDS-131309 ECS Blue Green fix verify
+  identifier: cds131309_ecs_bluegreen_fix_verify
+  orgIdentifier: organization_org_a818
+  projectIdentifier: project_proj_b28b
+  tags: {}
+  stages:
+    - stage:
+        name: ecs
+        identifier: ecs
+        description: ""
+        type: Deployment
+        tags: {}
+        spec:
+          deploymentType: ECS
+          service:
+            serviceRef: EcsService1_lF
+          environment:
+            environmentRef: EcsEnv_Tt
+            deployToAll: false
+            infrastructureDefinitions: <+input>
+          execution:
+            steps:
+              - stepGroup:
+                  name: Blue Green Deployment
+                  identifier: blueGreenDeployment
+                  steps:
+                    - step:
+                        name: ECS Blue Green Create Service
+                        identifier: EcsBlueGreenCreateService
+                        type: EcsBlueGreenCreateService
+                        timeout: 15m
+                        spec:
+                          loadBalancer: ecs-donot-delete-todolist
+                          prodListener: arn:aws:elasticloadbalancing:us-east-1:479370281431:listener/app/ecs-donot-delete-todolist/cd74c728114bef78/2f10fa73dd18d8f0
+                          isTrafficShift: true
+                          updateGreenService: false
+                          sameAsAlreadyRunningInstances: true
+                          prodListenerRuleArn: arn:aws:elasticloadbalancing:us-east-1:479370281431:listener-rule/app/ecs-donot-delete-todolist/cd74c728114bef78/2f10fa73dd18d8f0/35fcdf2f94efe015
+                          # false (default) = the scaling policy attaches
+                          # HERE, before traffic shift/swap -- this is the
+                          # exact window that reproduces/verifies CDS-131309.
+                          enableAutoscalingInSwapStep: false
+                        delegateSelectors:
+                          - "\"localdelegate\""
+                    - step:
+                        name: Ecs Blue Green Traffic Shift
+                        identifier: EcsBlueGreenTrafficShift
+                        type: EcsBlueGreenTrafficShift
+                        timeout: 15m
+                        spec:
+                          ecsTrafficShiftWrapper:
+                            type: Inherit
+                            spec:
+                              weightPercentage: 100
+                              downsizeOldService: true
+                              downsizeOldServiceDelayInSecs: 10
+            rollbackSteps:
+              - step:
+                  name: ECS Blue Green Rollback
+                  identifier: EcsBlueGreenRollback
+                  type: EcsBlueGreenRollback
+                  timeout: 10m
+                  spec: {}
+              - step:
+                  name: Stand Alone Traffic Shift Rollback
+                  identifier: StandAloneTrafficShiftRollback
+                  type: StandAloneTrafficShiftRollback
+                  timeout: 10m
+                  spec: {}
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: StageRollback
+        variables:
+          - name: desiredCount
+            type: Number
+            required: false
+            value: 1
+          - name: serviceName
+            type: String
+            required: false
+            value: ecsBG_cds131309
+          - name: taskName
+            type: String
+            required: false
+            value: taskName8B41
+          - name: var1
+            type: String
+            required: false
+            value: ecs-auto-8
+        delegateSelectors:
+          - "\"localdelegate\""
+
+# ---------------------------------------------------------------------------
+# STILL GENUINELY UNAVAILABLE (not in your reference pipeline, need lookup)
+# ---------------------------------------------------------------------------
+#   - PROD_TARGET_GROUP_RESOURCE_LABEL in ecsTest/scalingPolicy.yaml -- your
+#     reference gives listener/listener-rule ARNs but not the target group
+#     ARN itself. Get it with:
+#       aws elbv2 describe-rules --listener-arn <prodListener> \
+#         --query 'Rules[].Actions[].TargetGroupArn'
+#     then turn arn:...:targetgroup/<name>/<id> into
+#     app/ecs-donot-delete-todolist/<alb-id>/targetgroup/<name>/<id>
+#     (alb-id = cd74c728114bef78, from the listener ARN above).
+#   - Confirm EcsService1_lF's manifests actually include an
+#     EcsTaskDefinition/EcsServiceDefinition/EcsScalableTargetDefinition
+#     already (ecsTest/taskDefinition.yaml, serviceDefinition.yaml,
+#     scalableTarget.yaml in this repo are only needed if it doesn't).
+#   - Which specific infrastructureDefinition under EcsEnv_Tt to pick at
+#     runtime (only you know the identifier).
+#
+# HOW TO GET THE "BEFORE" RESULT (proves the repro is real):
+#   Run this against a delegate/build from BEFORE commit 2d1a6464fcd6 --
+#   Create Service should fail with "Target group is not attached to
+#   resource ...". Then run again with fix/CDS-131309-ecs-alb-resource-label
+#   -- it should succeed, with an "Auto-updating resourceLabel for policy
+#   ..." line in the Create Service step log.
