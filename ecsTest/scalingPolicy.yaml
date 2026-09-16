@@ -19,6 +19,8 @@
 #   arn:aws:elasticloadbalancing:us-east-1:479370281431:targetgroup/ecs-todolist-auto/43ae4618433943d0
 policyName: cds131309-alb-request-count-policy
 policyType: TargetTrackingScaling
+scalableDimension: ecs:service:DesiredCount
+serviceNamespace: ecs
 targetTrackingScalingPolicyConfiguration:
   targetValue: 1000
   predefinedMetricSpecification:
