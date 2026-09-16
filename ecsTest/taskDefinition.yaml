@@ -1,13 +1,26 @@
 # EcsTaskDefinition manifest == raw AWS RegisterTaskDefinitionRequest.
-family: cds131309-task
+# Values below (execution/task role ARNs, log group, cpu/mem, container name/port)
+# are copied from this account's own known-working manifest set
+# (PipelinesNgAutomation/ECS/blueGreen/RegisterTaskDefinitionRequest.yaml).
+executionRoleArn: arn:aws:iam::479370281431:role/ecsTaskExecutionRole
+taskRoleArn: arn:aws:iam::479370281431:role/ecsTaskExecutionRole
+family: <+stage.variables.taskName>
 networkMode: awsvpc
 requiresCompatibilities:
   - FARGATE
 cpu: "256"
 memory: "512"
 containerDefinitions:
-  - name: web
-    image: public.ecr.aws/nginx/nginx:latest
+  - name: nginx
+    image: <+artifact.image>
+    essential: true
     portMappings:
-      - containerPort: 80
+      - containerPort: 8080
+        hostPort: 8080
         protocol: tcp
+    logConfiguration:
+      logDriver: awslogs
+      options:
+        awslogs-group: "/aws/ecs/containerinsights/ecs-cluster-3/performance"
+        awslogs-region: us-east-1
+        awslogs-stream-prefix: ecs

@@ -1,4 +1,5 @@
 # EcsServiceDefinition manifest == raw AWS CreateServiceRequest.
+#
 # loadBalancers.targetGroupArn MUST be the literal expression <+targetGroupArn>
 # -- NOT a real ARN. Harness does a literal string substitution
 # (EcsCommandTaskNGHelper#updateTargetGroupArn) that searches the manifest
@@ -6,21 +7,25 @@
 # create) / prod (on swap) target group ARN it resolves from the
 # prodListenerRuleArn/stageListenerRuleArn on the Create Service step. If the
 # literal token isn't present, Harness throws:
-#   "target group expression: <+targetGroupArn> does not exist in service
-#   definition"
-# -- which is what a plain human-fill placeholder here would (and did) trigger.
-serviceName: cds131309-service
-desiredCount: 1
+#   "target group expression: <+targetGroupArn> does not exist in service definition"
+#
+# subnets/securityGroups below are copied from this account's own
+# known-working manifest set (PipelinesNgAutomation/ECS/blueGreen/
+# CreateServiceRequest.yaml) -- confirmed valid in this VPC.
+serviceName: <+stage.variables.serviceName>
+desiredCount: <+stage.variables.desiredCount>
 launchType: FARGATE
 networkConfiguration:
   awsvpcConfiguration:
-    subnets:
-      - <SUBNET_ID_1>
-      - <SUBNET_ID_2>
     securityGroups:
-      - <SECURITY_GROUP_ID>
+      - sg-afc848e7
+    subnets:
+      - subnet-9757dc98
     assignPublicIp: ENABLED
+deploymentConfiguration:
+  maximumPercent: 100
+  minimumHealthyPercent: 0
 loadBalancers:
   - targetGroupArn: <+targetGroupArn>
-    containerName: web
-    containerPort: 80
+    containerName: nginx
+    containerPort: 8080
