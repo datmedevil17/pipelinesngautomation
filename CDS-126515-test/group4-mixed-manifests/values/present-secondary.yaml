@@ -1,0 +1,5 @@
+# The SECONDARY (non-primary, Values-type) manifest's own file. Used only in
+# the baseline rows where the secondary path exists. `missing-secondary.yaml`,
+# referenced in the README's test matrix, is NEVER created -- that absence is
+# the whole point of this group.
+secondaryMarker: secondary-optional-applied

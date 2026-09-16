@@ -1,0 +1,94 @@
+# CDS-126515 -- Group 4: Kubernetes service with TWO manifest sources
+# (primary K8sManifest + secondary Values manifest), exercising the gap
+# where RenderingStep's filtering only checks the PRIMARY manifest's
+# optionalValuesYaml flag even though `overrides`/`optionalOverrides` are
+# aggregated across ALL manifest sources.
+#
+# This pipeline is reused across every row in this group's README. Between
+# runs, edit the SECONDARY (Values-type, identifier: extravalues) manifest
+# entry only:
+#   - toggle its `optionalValuesYaml` true/false
+#   - point its path at values/present-secondary.yaml (exists) or
+#     missing-secondary.yaml (never created, deliberately)
+# The PRIMARY (k8s) manifest entry never changes across rows -- it always
+# points at present-primary.yaml with optionalValuesYaml false/unset.
+#
+# BEFORE RUNNING
+#   1. This repo is already pushed -- fetches from git, not your working copy.
+#   2. Create the service described in README.md, using the connector you
+#      actually have pointed at this GitHub repo.
+#   3. Replace every <YOUR_...> placeholder below.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: Mixed Manifest Optional Values
+      id: mixedmanifestoptionalvalues
+      service: service_kubernetes_0b81   # <YOUR_SERVICE_ID> -- create per README.md
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+
+        # ===================================================================
+        # STEP 1 -- shows what Java resolved for THIS run's config. Always
+        # runs, never fails -- just evidence for reading against the table.
+        # Watch `optionalOverrides` here: it should list the secondary
+        # manifest's path whenever that manifest's optionalValuesYaml is
+        # true, REGARDLESS of what the primary manifest's flag is set to --
+        # that's the aggregation the bug report is about.
+        # ===================================================================
+        - name: signal evidence
+          id: signalevidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              OPTIONAL_OVERRIDES: ${{serviceOutput.manifests.optionalOverrides}}
+            script: |-
+              echo "overrides         : $OVERRIDES"
+              echo "optionalOverrides : $OPTIONAL_OVERRIDES"
+
+        # ===================================================================
+        # STEP 2 -- the actual test. Pass/fail here IS the result for
+        # whichever row of the README table you're currently configured for.
+        # If the bug is present: rows where ONLY the secondary manifest is
+        # optional and its file is missing will FAIL here, even though the
+        # design intent is for them to PASS (same as a primary-optional row).
+        # ===================================================================
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+        # ===================================================================
+        # STEP 3 -- only reached if step 2 passes. Prints what actually
+        # rendered so you can tell "secondary values applied" (secondary-marker:
+        # secondary-optional-applied) from "secondary skipped" (secondary-marker:
+        # <no value>, since no secondary values were merged at all).
+        # ===================================================================
+        - name: rendered manifest
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              f=$(find /harness -type f -name deployment.yaml 2>/dev/null | sort | head -1)
+              echo "manifest: $f"
+              echo "===== contents ====="
+              cat "$f"
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

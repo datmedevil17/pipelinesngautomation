@@ -1,0 +1,8 @@
+# Primary manifest's own values file. REQUIRED -- optionalValuesYaml stays
+# false/unset on the primary manifest for every row in this group, so this
+# file must always exist and always be declared.
+appName: cds126515-group4-primary
+replicaCount: 2
+image: nginx:1.25
+port: 8080
+featureFlag: primary-required-present

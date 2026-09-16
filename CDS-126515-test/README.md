@@ -18,6 +18,17 @@ three folders below.
 | 1 | Kubernetes | K8s Manifest | `group1-k8s-manifest/` |
 | 2 | Kubernetes | Helm Chart | `group2-k8s-helmchart/` |
 | 3 | Helm (`NativeHelm`) | Helm Chart | `group3-helm-service/` |
+| 4 | Kubernetes | K8s Manifest (primary) + Values (secondary) | `group4-mixed-manifests/` |
+
+Group 4 is different from 1-3: instead of testing the flag on a single
+manifest, it tests whether a SECONDARY manifest's own `optionalValuesYaml`
+is honored when the PRIMARY manifest is required. `RenderingStep` currently
+resolves the flag off the primary manifest only
+(`resolvePrimaryManifestOptionalValuesYaml`), while `overrides` /
+`optionalOverrides` are aggregated across all manifest sources
+(`ServiceEntityProcessor.getOverrideFilePathsFromInputs`) -- a suspected gap
+this group is built to confirm or rule out. See its own README for the
+critical row (D4).
 
 Each group's README has: the service YAML to create, the pipeline to
 run unchanged across all 6 rows, and a table of `valuesPaths` /
