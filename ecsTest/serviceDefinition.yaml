@@ -1,7 +1,14 @@
 # EcsServiceDefinition manifest == raw AWS CreateServiceRequest.
-# loadBalancers points at the STAGE target group -- on a Blue/Green create,
-# the new (green) service is only attached to stage, not prod, until the
-# Swap Target Groups step runs. Replace <STAGE_TARGET_GROUP_ARN> below.
+# loadBalancers.targetGroupArn MUST be the literal expression <+targetGroupArn>
+# -- NOT a real ARN. Harness does a literal string substitution
+# (EcsCommandTaskNGHelper#updateTargetGroupArn) that searches the manifest
+# content for this exact token and replaces it with the actual stage (on
+# create) / prod (on swap) target group ARN it resolves from the
+# prodListenerRuleArn/stageListenerRuleArn on the Create Service step. If the
+# literal token isn't present, Harness throws:
+#   "target group expression: <+targetGroupArn> does not exist in service
+#   definition"
+# -- which is what a plain human-fill placeholder here would (and did) trigger.
 serviceName: cds131309-service
 desiredCount: 1
 launchType: FARGATE
@@ -14,6 +21,6 @@ networkConfiguration:
       - <SECURITY_GROUP_ID>
     assignPublicIp: ENABLED
 loadBalancers:
-  - targetGroupArn: <STAGE_TARGET_GROUP_ARN>
+  - targetGroupArn: <+targetGroupArn>
     containerName: web
     containerPort: 80
