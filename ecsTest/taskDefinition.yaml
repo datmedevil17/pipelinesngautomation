@@ -12,7 +12,7 @@ cpu: "256"
 memory: "512"
 containerDefinitions:
   - name: nginx
-    image: <+artifact.image>
+    image: public.ecr.aws/nginx/nginx:latest
     essential: true
     portMappings:
       - containerPort: 8080

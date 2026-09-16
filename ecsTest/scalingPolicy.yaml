@@ -14,14 +14,15 @@
 # DescribeServices, and rewrites just the targetgroup/<name>/<id> suffix
 # to match -- ALB name/id prefix is left untouched.
 #
-# Replace <PROD_TARGET_GROUP_RESOURCE_LABEL> with:
-#   app/<alb-name>/<alb-id>/targetgroup/<prod-tg-name>/<prod-tg-id>
+# resourceLabel resolved from ecs-donot-delete-todolist's prod listener rule
+# (100% weight -> target group ecs-todolist-auto):
+#   arn:aws:elasticloadbalancing:us-east-1:479370281431:targetgroup/ecs-todolist-auto/43ae4618433943d0
 policyName: cds131309-alb-request-count-policy
 policyType: TargetTrackingScaling
 targetTrackingScalingPolicyConfiguration:
   targetValue: 1000
   predefinedMetricSpecification:
     predefinedMetricType: ALBRequestCountPerTarget
-    resourceLabel: <PROD_TARGET_GROUP_RESOURCE_LABEL>
+    resourceLabel: app/ecs-donot-delete-todolist/cd74c728114bef78/targetgroup/ecs-todolist-auto/43ae4618433943d0
   scaleInCooldown: 60
   scaleOutCooldown: 60

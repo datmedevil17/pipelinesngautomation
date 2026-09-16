@@ -43,11 +43,20 @@ pipeline:
         spec:
           deploymentType: ECS
           service:
-            serviceRef: EcsService1_lF
+            serviceRef: ecsResLabel
+            serviceInputs:
+              serviceDefinition:
+                type: ECS
+                spec:
+                  artifacts:
+                    primary:
+                      primaryArtifactRef: <+input>
+                      sources: <+input>
           environment:
             environmentRef: EcsEnv_Tt
             deployToAll: false
-            infrastructureDefinitions: <+input>
+            infrastructureDefinitions:
+              - identifier: EcsInfra_xn
           execution:
             steps:
               - stepGroup:
@@ -111,7 +120,7 @@ pipeline:
           - name: serviceName
             type: String
             required: false
-            value: ecsBG_cds131309
+            value: ecsBG_cds131309_run2
           - name: taskName
             type: String
             required: false
@@ -124,22 +133,15 @@ pipeline:
           - "\"localdelegate\""
 
 # ---------------------------------------------------------------------------
-# STILL GENUINELY UNAVAILABLE (not in your reference pipeline, need lookup)
+# EVERYTHING NEEDED IS NOW RESOLVED:
 # ---------------------------------------------------------------------------
-#   - PROD_TARGET_GROUP_RESOURCE_LABEL in ecsTest/scalingPolicy.yaml -- your
-#     reference gives listener/listener-rule ARNs but not the target group
-#     ARN itself. Get it with:
-#       aws elbv2 describe-rules --listener-arn <prodListener> \
-#         --query 'Rules[].Actions[].TargetGroupArn'
-#     then turn arn:...:targetgroup/<name>/<id> into
-#     app/ecs-donot-delete-todolist/<alb-id>/targetgroup/<name>/<id>
-#     (alb-id = cd74c728114bef78, from the listener ARN above).
-#   - Confirm EcsService1_lF's manifests actually include an
-#     EcsTaskDefinition/EcsServiceDefinition/EcsScalableTargetDefinition
-#     already (ecsTest/taskDefinition.yaml, serviceDefinition.yaml,
-#     scalableTarget.yaml in this repo are only needed if it doesn't).
-#   - Which specific infrastructureDefinition under EcsEnv_Tt to pick at
-#     runtime (only you know the identifier).
+#   - resourceLabel in ecsTest/scalingPolicy.yaml is filled in with the real
+#     prod target group (ecs-todolist-auto, 100% weight on the prod listener
+#     rule).
+#   - infra def is EcsInfra_xn under EcsEnv_Tt.
+#   - service ecsResLabel already has an artifact source configured --
+#     primaryArtifactRef/sources are runtime inputs, no need to hardcode an
+#     image in taskDefinition.yaml for this service.
 #
 # HOW TO GET THE "BEFORE" RESULT (proves the repro is real):
 #   Run this against a delegate/build from BEFORE commit 2d1a6464fcd6 --
