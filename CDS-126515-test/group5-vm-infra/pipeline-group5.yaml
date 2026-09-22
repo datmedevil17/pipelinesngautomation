@@ -1,0 +1,81 @@
+# CDS-126515 -- Group 5: same fixture as Group 1, but on a VM/Docker stage
+# runtime instead of Kubernetes. Groups 1-4 all run `runtime: kubernetes:`,
+# which only exercises RenderingStep's K8-infra path
+# (handleK8AsyncFailureResponse). This group exists to exercise the OTHER
+# infra branch touched this session -- ManifestsStep.handleVmAsyncSuccessResponses
+# (VM/DLITE_VM path) and RenderingStep's handleAsyncResponses VM branch --
+# which none of groups 1-4 can reach.
+#
+# Same 6-row matrix as group1 (A1-A6), just re-run on a non-K8s runtime.
+# See CDS-130653-repro/pipelines/case07 vs case08 for the precedent: a
+# non-K8s stage runtime has no initialize-time port table, so the fetch
+# takes submitTaskByTemplate/VM task path instead of submitK8sTask.
+#
+# BEFORE RUNNING
+#   1. This repo is already pushed -- fetches from git, not your working copy.
+#   2. Create the service described in README.md (same shape as group1's,
+#      just point its manifest paths at group5-vm-infra/).
+#   3. Replace every <YOUR_...> placeholder below.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: K8s Manifest Optional Values VM
+      id: k8smanifestoptionalvaluesvm
+      service: <YOUR_SERVICE_ID>   # svc-cds126515-group5, mirrors group1's shape
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+
+        # ===================================================================
+        # STEP 1 -- same evidence step as group1. Always runs, never fails.
+        # ===================================================================
+        - name: signal evidence
+          id: signalevidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              OPTIONAL_OVERRIDES: ${{serviceOutput.manifests.optionalOverrides}}
+            script: |-
+              echo "overrides         : $OVERRIDES"
+              echo "optionalOverrides : $OPTIONAL_OVERRIDES"
+
+        # ===================================================================
+        # STEP 2 -- the actual test. Pass/fail here IS the result for
+        # whichever row of the table you're currently configured for.
+        # ===================================================================
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+        # ===================================================================
+        # STEP 3 -- only reached if step 2 passes.
+        # ===================================================================
+        - name: rendered manifest
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              f=$(find /harness -type f -name deployment.yaml 2>/dev/null | sort | head -1)
+              echo "manifest: $f"
+              echo "===== contents ====="
+              cat "$f"
+
+      # The only difference from group1's pipeline: a non-K8s stage runtime.
+      # This routes ManifestsStep/RenderingStep through their VM/DLITE_VM
+      # branches (handleVmAsyncSuccessResponses, handleAsyncResponses)
+      # instead of the K8 branch (handleK8AsyncFailureResponse).
+      runtime:
+        docker: {}
+      timeout: 15m

@@ -1,0 +1,56 @@
+# VMS contract smoke test -- validates the run.uses/version plugin migration
+# for downloadArtifactAction@1.0.1 (plugin artifact-download@0.0.2).
+#
+# Prereqs (local dev machine):
+#   - VMS running on localhost:15021 with artifact-download registered
+#     (plugin/source + POST plugin/version -- done for artifact-download@0.0.2)
+#   - python3 -m http.server 8099 --directory ~/plugins  (serves the binary)
+#   - downloadArtifactAction config.yaml stable == 1.0.1
+#   - service_kubernetes_0b81 must have an ARTIFACT configured whose
+#     identifier matches `artifact_id` below. None of the local test
+#     services currently have one -- add an HTTP artifact source via the
+#     Service Studio (Artifacts -> Add Artifact Source -> HTTP Helm/Generic,
+#     no connector needed) with:
+#       identifier: testartifact
+#       artifact url: any small file, e.g.
+#         https://raw.githubusercontent.com/harness/harness-cli/master/README.md
+#   The plugin only needs HARNESS_ARTIFACT_METADATA_JSON (auto-injected by
+#   the platform from that artifact config) -- PLUGIN_ARTIFACT_ID here must
+#   equal the artifact source's identifier, not a free-form string.
+#
+# EXPECT: step green, "Running step on Host...", binary served from
+#   http://127.0.0.1:8099/artifact-download/... (not container pull),
+#   log shows "Processing artifact metadata..." + downloaded file at
+#   /tmp/vms-test-artifact/README.md.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: VMS artifact download test
+      id: vmsartifactdownload
+      service: service_kubernetes_0b81
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+
+        # ===================================================================
+        # VMS STEP -- downloadArtifactAction@1.0.1 (run.uses: artifact-download)
+        # ===================================================================
+        - name: download artifact
+          id: downloadArtifact
+          template:
+            uses: downloadArtifactAction@1.0.1
+            with:
+              artifact_id: testartifact
+              download_path: /tmp/vms-test-artifact/
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

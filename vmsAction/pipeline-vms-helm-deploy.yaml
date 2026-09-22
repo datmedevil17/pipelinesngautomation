@@ -1,0 +1,34 @@
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: VMS helm deploy test
+      id: vmshelmdeploy
+      service: service_kubernetes_0b81
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+
+        # ===================================================================
+        # VMS STEP -- helmDeployAction@1.0.10 (run.uses: helm-deploy)
+        # ===================================================================
+        - name: helm deploy
+          id: helmDeploy
+          template:
+            uses: helmDeployAction@1.0.10
+            with:
+              strategy: basic
+              log_level: debug
+              helm: /Users/datmedevil/.rd/bin/helm
+              helm_renderer: ""
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

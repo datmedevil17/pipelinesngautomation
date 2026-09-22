@@ -1,0 +1,79 @@
+# CDS-126515 -- Group 6: delegate/task-level failure, NOT a missing-file
+# failure.
+#
+# Groups 1-5 all test "the file legitimately doesn't exist in the repo" --
+# that's a clean plugin response (StepStatusTaskResponseData with a FAILURE
+# stepExecutionStatus, or a normal SUCCESS). This group tests the OTHER
+# failure shape RenderingStep.handleK8AsyncFailureResponse handles:
+# ErrorNotifyResponseData -- the delegate/task itself erroring out (bad git
+# ref, connector can't authenticate, etc.) before the plugin ever gets to
+# report file-found/file-missing at all.
+#
+# BEFORE RUNNING
+#   1. This repo is already pushed -- fetches from git, not your working copy.
+#   2. Create the service described in README.md.
+#   3. Replace every <YOUR_...> placeholder below.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: Delegate Task Failure
+      id: delegatetaskfailure
+      service: <YOUR_SERVICE_ID>   # svc-cds126515-group6
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+
+        # ===================================================================
+        # STEP 1 -- evidence. Always runs, never fails.
+        # ===================================================================
+        - name: signal evidence
+          id: signalevidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              OPTIONAL_OVERRIDES: ${{serviceOutput.manifests.optionalOverrides}}
+            script: |-
+              echo "overrides         : $OVERRIDES"
+              echo "optionalOverrides : $OPTIONAL_OVERRIDES"
+
+        # ===================================================================
+        # STEP 2 -- the actual test. Read the STEP LOG / failure message
+        # here, not just pass/fail -- the whole point of this group is
+        # confirming the delegate's own error text survives intact.
+        # ===================================================================
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+        # ===================================================================
+        # STEP 3 -- only reached on F1 (baseline). F2/F3 never get here.
+        # ===================================================================
+        - name: rendered manifest
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              f=$(find /harness -type f -name deployment.yaml 2>/dev/null | sort | head -1)
+              echo "manifest: $f"
+              echo "===== contents ====="
+              cat "$f"
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

@@ -1,0 +1,95 @@
+# VMS contract smoke test -- validates the run.uses/version plugin migration
+# end-to-end across two chained Action templates:
+#
+#   k8sRollingPrepareAction@1.0.8  (already converted+proven, plugin k8s-rolling@1.0.3)
+#   k8sApplyAction@1.0.12          (just converted, plugin k8s-apply@0.0.2)
+#
+# Prereqs (local dev machine):
+#   - VMS running on localhost:15021 with both plugins registered
+#     (plugin/source + plugin/version, see Slack refs)
+#   - python3 -m http.server 8099 --directory ~/plugins  (serves the binaries)
+#   - k8sApplyAction config.yaml stable == 1.0.12, k8sRollingPrepareAction stable == 1.0.8
+#   - service_kubernetes_0b81 has real K8s manifests configured (Deployment/Service)
+#     so ${{runtime.manifestPath}} (the `manifests` default) resolves to something real.
+#
+# NOTE on workspace isolation (discovered via pipeline_vms #49):
+#   run.uses (VMS plugin) steps execute "on Host" -- HARNESS_WORKSPACE is a
+#   delegate-host directory like /tmp/harness/<stageUUID>/, NOT the /harness
+#   path that run.container steps get inside their own Docker container/pod.
+#   A container step's hand-seeded file at /harness/... is therefore invisible
+#   to a VMS step -- do NOT try to seed manifests via a plain container step
+#   in this kind of test. Two VMS steps chained together (this pipeline) DO
+#   share the same host workspace, so output-variable chaining between them
+#   works fine -- only the container<->host boundary is the problem.
+#
+# Same known-good service/env/infra triple used by the other repros in this
+# folder (CDS-130618-repro, CDS-130653-*):
+#   service:     service_kubernetes_0b81
+#   environment: environment_env_2a02
+#   infra:       infrastructure_kubernetes_5a5e
+#   connector:   account.cdautomationtest
+# Swap in any K8s service + env + infra if your account differs -- just make
+# sure that service has manifests configured (not blank).
+#
+# EXPECT: both steps green.
+#   prepareRollingManifest -- k8sRollingPrepareAction (VMS) consumes the service's
+#                             own fetched manifests (default manifests input),
+#                             consolidates them, writes PLUGIN_MANIFEST_OUTPUT_PATH
+#   applyManifest           -- k8sApplyAction (VMS) applies step 1's output to the cluster
+#
+# Decisive log lines to check per-step:
+#   prepareRollingManifest: "Running step on Host...", binary served from
+#                            http://127.0.0.1:8099/k8s-rolling/... (not container pull)
+#   applyManifest:          "Running step on Host...", binary served from
+#                            http://127.0.0.1:8099/k8s-apply/...   (not container pull)
+#   applyManifest:          "... created" / "... configured" for each applied resource
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: VMS k8s chain test
+      id: vmsk8schain
+      service: service_kubernetes_0b81
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+
+        # ===================================================================
+        # VMS STEP 1 -- k8sRollingPrepareAction@1.0.8 (run.uses: k8s-rolling)
+        # `manifests` is left on its default (${{runtime.manifestPath}}), which
+        # points at the service's own fetched manifests -- the same thing that
+        # worked in pipeline_vms #44.
+        # ===================================================================
+        - name: prepare rolling manifest
+          id: prepareRollingManifest
+          template:
+            uses: k8sRollingPrepareAction@1.0.8
+            with:
+              manifest_output_path: /tmp/vms-test-prepared
+              log_level: debug
+
+        # ===================================================================
+        # VMS STEP 2 -- k8sApplyAction@1.0.12 (run.uses: k8s-apply)
+        # Consumes STEP 1's output via outputVariables -- both steps run "on
+        # Host" and share the same delegate workspace, so this chaining works.
+        # ===================================================================
+        - name: apply manifest
+          id: applyManifest
+          template:
+            uses: k8sApplyAction@1.0.12
+            with:
+              manifests:
+                - ${{steps.prepareRollingManifest.output.outputVariables.PLUGIN_MANIFEST_OUTPUT_PATH}}
+              manifest_output_path: /tmp/vms-test-applied
+              log_level: debug
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

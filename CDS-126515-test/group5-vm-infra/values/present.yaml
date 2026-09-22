@@ -1,0 +1,8 @@
+# The only real values file this group needs. Every test case in the
+# README either declares this path, or declares a path that does not
+# exist (e.g. missing-1.yaml, missing-2.yaml) -- those are never created.
+appName: cds126515-present
+replicaCount: 2
+image: nginx:1.25
+port: 8080
+featureFlag: present-value-applied

@@ -57,6 +57,12 @@ pipeline:
         # STEP 3 -- only reached if step 2 passes. Prints what actually
         # rendered so you can tell "present.yaml applied" from "skipped,
         # no defaults available" (a raw K8s manifest has no fallback values).
+        #
+        # NOTE: Dry Run (step 2) executes on the delegate HOST filesystem
+        # (/tmp/harness/<stageId>/...), not inside this stage's K8s build
+        # pods -- the two don't share a filesystem, so this step can never
+        # actually find the rendered file under /harness. It's kept
+        # informational only and must not fail the pipeline over that.
         # ===================================================================
         - name: rendered manifest
           id: rendered
@@ -67,6 +73,10 @@ pipeline:
             shell: sh
             script: |-
               f=$(find /harness -type f -name deployment.yaml 2>/dev/null | sort | head -1)
+              if [ -z "$f" ]; then
+                echo "manifest: not found under /harness (expected -- Dry Run renders on the delegate host, not this pod; see step 2's log for the actual rendered content)"
+                exit 0
+              fi
               echo "manifest: $f"
               echo "===== contents ====="
               cat "$f"

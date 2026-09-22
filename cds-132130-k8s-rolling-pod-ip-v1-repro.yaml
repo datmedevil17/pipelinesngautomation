@@ -1,0 +1,44 @@
+pipeline:
+  stages:
+    - name: Deploy
+      identifier: Deploy
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: $resourceNamePrefix
+      service: $svcRef
+      environment:
+        items:
+          - id: $envRef
+            deploy-to: $infraRef
+      steps:
+        - name: Kubernetes Rolling Deploy
+          identifier: k8sRolling
+          template:
+            uses: k8sRollingDeployStep
+        - name: printPodIp
+          identifier: printPodIp
+          run:
+            script: |-
+              echo "<+step.repeat.item>"
+            shell: bash
+          strategy:
+            repeat:
+              items: <+steps.k8sRolling.output.podIps>
+          timeout: 5m
+      on-failure:
+        errors: all
+        action: pipeline-rollback
+      rollback:
+        - group:
+            steps:
+              - name: Kubernetes Rolling Rollback
+                identifier: k8sRollingRollbackStep
+                template:
+                  uses: k8sRollingRollbackStep
+      runtime:
+        kubernetes:
+          namespace: $runtimeNamespace
+          connector: $runtimeConnector
+      timeout: $stageTimeout
+      delegate: $stageDelegateSelector

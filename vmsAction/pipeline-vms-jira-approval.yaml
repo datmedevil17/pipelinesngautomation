@@ -1,0 +1,46 @@
+# VMS contract smoke test -- validates the run.uses/version plugin migration
+# for jiraApproval@1.0.8 (plugin jira-approval@0.0.2).
+#
+# Prereqs (local dev machine):
+#   - VMS running on localhost:15021 with jira-approval registered
+#     (plugin/source + POST plugin/version -- done for jira-approval@0.0.2)
+#   - python3 -m http.server 8099 --directory ~/plugins  (serves the binary)
+#   - jiraApproval config.yaml stable == 1.0.8
+#   - account.jira_local connector must exist and point at a reachable Jira
+#     instance/issue (CDS-129988) for the approval poll to actually resolve.
+#
+# NOTE: `deploy:` here is NOT a typo/shorthand for `template:` -- it's a
+# real alias in TemplateRef (pipeline.json:1242, "Alias for `template`").
+# jiraApproval's own template.yaml declares `alias: deploy`, so
+# `deploy: uses: jiraApproval@1.0.8 with: ...` is the canonical way to
+# reference this template, equivalent to `template: uses: jiraApproval@1.0.8`.
+# Kept as-is from your sample, just version-pinned to @1.0.8.
+#
+# EXPECT: step green, "Running step on Host...", binary served from
+#   http://127.0.0.1:8099/jira-approval/... (not container pull).
+
+pipeline:
+  stages:
+    - steps:
+        - name: jira_approval
+          id: jira_approval
+          deploy:
+            uses: jiraApproval@1.0.8
+            with:
+              connector: account.jira_local
+              issue: CDS-129988
+              approve:
+                match-any-condition: false
+                conditions:
+                  - Status:
+                      eq: Done
+              log_level: info
+              reject:
+                match-any-condition: true
+                conditions:
+                  - Status:
+                      eq: Rejected
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: account.KubernetesConnectorForAutomationTest

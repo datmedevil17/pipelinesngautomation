@@ -1,0 +1,7 @@
+# Baseline values file for the sanity-check row (F1) only. F2/F3 never
+# get far enough to read this file -- they fail before fetch succeeds.
+appName: cds126515-present
+replicaCount: 2
+image: nginx:1.25
+port: 8080
+featureFlag: present-value-applied
