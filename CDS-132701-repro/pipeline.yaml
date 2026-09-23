@@ -1,0 +1,93 @@
+# CDS-132701 -- S3 artifact "file paths" dropdown returns SUCCESS with every
+# scalar field null, for accounts whose getFilePaths task routes through the
+# Go-runner plugin instead of the classic JVM delegate.
+#
+# ---------------------------------------------------------------------------
+# ROOT CAUSE (confirmed)
+# ---------------------------------------------------------------------------
+# unified-delegate-task's s3-artifact plugin used to wrap each result as
+#     response.FilePathResponse{ BuildDetails: BuildDetails{...} }   json:"buildDetails"
+# NG-manager's FilePathDTO expects the BuildDetails fields FLAT at the top
+# level of each array entry, not nested one level deeper under "buildDetails".
+# Jackson silently leaves an unmatched field at its default (null for a
+# scalar) instead of erroring -- hence HTTP 200/SUCCESS, correct array length,
+# every scalar field null. Fixed upstream in
+# unified-delegate-task@fc69484 (CDS-127224), which flattens the struct.
+#
+# The classic JVM delegate path never had this bug (it's different code
+# entirely) -- only accounts dispatching through the runner/plugin path did.
+#
+# ---------------------------------------------------------------------------
+# WHAT THIS PIPELINE VALIDATES
+# ---------------------------------------------------------------------------
+# Calls the exact REST endpoint the UI dropdown calls
+# (GET /ng/api/buckets/s3/getFilePaths) against TWO accounts:
+#   - "og"  -- routes through the classic delegate -- CONTROL, always green
+#   - "sai" -- routes through the runner/plugin     -- THE BUG, was RED
+# and asserts every returned entry has a non-null buildDetails.number.
+#
+# A run where BOTH steps go green proves the runner-path fix is live in
+# production end-to-end (this hits the real qa.harness.io backend -- it does
+# NOT depend on any local runner cache on your machine). If "sai" goes red,
+# the GCS-published s3-artifact plugin binary has regressed back to the
+# pre-fc69484 shape -- see README.md for how to confirm via `strings`.
+#
+# ---------------------------------------------------------------------------
+# BEFORE RUNNING
+# ---------------------------------------------------------------------------
+# Fill in both TOKEN_* values below with a fresh JWT (the browser `token`
+# cookie value, no "Bearer " prefix) for each account. Tokens expire fast --
+# grab them right before running, and never commit a real one.
+#
+# The account/org/project/connector/bucket ids below are the pair already
+# confirmed to reproduce this bug 1:1 (see fixtures/getfilepaths.sh). Swap
+# them for your own accounts if these stop being valid.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - runtime: shell
+      name: CDS-132701 validate S3 getFilePaths
+      id: cds132701validate
+      steps:
+
+        - name: control - og account (classic delegate, expect PASS)
+          id: controlog
+          run:
+            shell: sh
+            env:
+              TOKEN_OG: "<PASTE_OG_ACCOUNT_TOKEN_HERE>"
+            script: |-
+              set -eu
+              cd "$(dirname "$0")" 2>/dev/null || true
+              d=$(find / -maxdepth 6 -type d -name CDS-132701-repro 2>/dev/null | head -1)
+              sh "$d/fixtures/getfilepaths.sh" \
+                "OgiB4-xETamKNVAz-wQRjw" \
+                "DoNotDeleteTriggerOrg" \
+                "CDCNG_GithubWebhookAutoAbortCasesREObbmt5wF" \
+                "account.CDCNGAuto_Aws7sqsjtJAMk" \
+                "cdp-serverless" \
+                "us-east-1" \
+                "$TOKEN_OG"
+
+        - name: bug check - sai account (runner path, was FAIL pre-fix)
+          id: buggycheck
+          run:
+            shell: sh
+            env:
+              TOKEN_SAI: "<PASTE_SAI_ACCOUNT_TOKEN_HERE>"
+            script: |-
+              set -eu
+              d=$(find / -maxdepth 6 -type d -name CDS-132701-repro 2>/dev/null | head -1)
+              sh "$d/fixtures/getfilepaths.sh" \
+                "SAlceEKKT6KK5rD8zUcI8g" \
+                "Pipelines_NonK8s_Org_NG" \
+                "NGPipeAutoV1BarrierChain9MY9wMnmDo" \
+                "org.AWSConnectorForAutomationTest" \
+                "cdp-serverless" \
+                "us-east-1" \
+                "$TOKEN_SAI"
+
+      timeout: 5m

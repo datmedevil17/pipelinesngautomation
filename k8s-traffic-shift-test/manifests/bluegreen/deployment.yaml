@@ -1,0 +1,43 @@
+# Single Deployment for the BG scenario (T15817/T15816), following Harness's
+# own blue/green color convention instead of this suite's fixed v1/v2 naming
+# (which is incompatible with k8sBlueGreenDeployStep -- see
+# ../../bluegreen-istio-checkrouting/EXECUTION_LOG.md). Harness's BG step
+# resolves ${harnessColor} to "blue" or "green" and creates a "-stage"
+# suffixed copy on each deploy, swapping the primary Service's selector on
+# promotion.
+#
+# UNVERIFIED against the CD Unified plugin -- this is the classic Harness
+# BG convention (${harnessColor} templating + harness.io/color label). If
+# the real run errors again on color parsing, capture that new error's
+# exact expectation and fix this file from it, per this repo's standing
+# rule of never trusting an unverified schema.
+#
+# -text arg is a plain literal you edit before each run (same "edit and
+# re-run" substitution used everywhere else in this repo -- run 1: v1,
+# run 2: v2).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trafficshift-bg
+  labels:
+    app: trafficshift-bg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trafficshift-bg
+      harness.io/color: ${harnessColor}
+  template:
+    metadata:
+      labels:
+        app: trafficshift-bg
+        harness.io/color: ${harnessColor}
+    spec:
+      containers:
+        - name: trafficshift
+          image: hashicorp/http-echo:latest
+          args:
+            - -text=v1
+            - -listen=:5000
+          ports:
+            - containerPort: 5000

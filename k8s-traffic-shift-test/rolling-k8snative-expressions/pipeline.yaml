@@ -37,14 +37,22 @@ pipeline:
               connector: account.harnessImage
             shell: sh
             output:
-              - PROVIDER
-              - RESOURCE_NAME
-              - HOST
-              - GATEWAY
-              - V1_WEIGHT_CONFIG
-              - V2_WEIGHT_CONFIG
-              - V1_WEIGHT_INHERIT
-              - V2_WEIGHT_INHERIT
+              - name: PROVIDER
+                alias: PROVIDER
+              - name: RESOURCE_NAME
+                alias: RESOURCE_NAME
+              - name: HOST
+                alias: HOST
+              - name: GATEWAY
+                alias: GATEWAY
+              - name: V1_WEIGHT_CONFIG
+                alias: V1_WEIGHT_CONFIG
+              - name: V2_WEIGHT_CONFIG
+                alias: V2_WEIGHT_CONFIG
+              - name: V1_WEIGHT_INHERIT
+                alias: V1_WEIGHT_INHERIT
+              - name: V2_WEIGHT_INHERIT
+                alias: V2_WEIGHT_INHERIT
             script: |-
               export PROVIDER=k8s-native
               export RESOURCE_NAME=trafficshift-route
@@ -58,7 +66,7 @@ pipeline:
 
         - name: Traffic Routing Config (k8s-native, expression-driven)
           id: trConfig
-          template:
+          deploy:
             uses: k8sTrafficRoutingStep
             with:
               config_type: new
@@ -79,7 +87,7 @@ pipeline:
 
         - name: Traffic Routing Inherit (k8s-native, expression-driven)
           id: trInherit
-          template:
+          deploy:
             uses: k8sTrafficRoutingStep
             with:
               config_type: update

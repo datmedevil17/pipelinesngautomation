@@ -1,0 +1,80 @@
+# Diagnostic scratch pipeline -- NOT part of the T15722 port itself.
+# Purpose: isolate whether ${{steps.<id>.output.outputVariables.X}} resolves
+# inside a plain `run:` step's `env:` block, independent of the
+# k8sTrafficRoutingStep (`deploy:`) failure seen in pipeline.yaml. If
+# `isolationTest` prints real values (PROVIDER=istio etc.) here, the bug is
+# scoped to `deploy:`-type steps' `with:` blocks, not expression resolution
+# in general. Delete this file once the diagnosis is confirmed either way.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-T15722 isolation test
+      id: cds_t15722_isolation
+      service: service_kubernetes_8f4a
+      environment:
+        id: environment_env_a193
+        deploy-to: infrastructure_kubernetes_k8s_traffic_shift
+      steps:
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: set traffic-routing fields
+          id: setFields
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            output:
+              - name: PROVIDER
+                alias: PROVIDER
+              - name: RESOURCE_NAME
+                alias: RESOURCE_NAME
+              - name: HOST
+                alias: HOST
+              - name: V1_WEIGHT_CONFIG
+                alias: V1_WEIGHT_CONFIG
+              - name: V2_WEIGHT_CONFIG
+                alias: V2_WEIGHT_CONFIG
+              - name: V1_WEIGHT_INHERIT
+                alias: V1_WEIGHT_INHERIT
+              - name: V2_WEIGHT_INHERIT
+                alias: V2_WEIGHT_INHERIT
+            script: |-
+              export PROVIDER=istio
+              export RESOURCE_NAME=trafficshift-vs
+              export HOST=trafficshift
+              export V1_WEIGHT_CONFIG=100
+              export V2_WEIGHT_CONFIG=0
+              export V1_WEIGHT_INHERIT=0
+              export V2_WEIGHT_INHERIT=100
+              echo "fields exported for expression-driven Traffic Routing steps"
+
+        - name: isolation test - expression in run step
+          id: isolationTest
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              PROVIDER: ${{steps.setFields.output.outputVariables.PROVIDER}}
+              RESOURCE_NAME: ${{steps.setFields.output.outputVariables.RESOURCE_NAME}}
+              V1W: ${{steps.setFields.output.outputVariables.V1_WEIGHT_CONFIG}}
+            script: |-
+              echo "PROVIDER=$PROVIDER"
+              echo "RESOURCE_NAME=$RESOURCE_NAME"
+              echo "V1_WEIGHT_CONFIG=$V1W"
+
+      runtime:
+        kubernetes:
+          namespace: traffic-shift-demo
+          connector: connector_K8sCluster_a7ec
+          automount-service-token: true
+          pull: always
+      timeout: 15m

@@ -23,6 +23,33 @@
 # BEFORE RUNNING: git push, create ../service.yaml, Blue-Green-capable K8s
 # Direct infra in an Istio-installed cluster (istio-injection=enabled on the
 # namespace). Fill in every <YOUR_...>.
+#
+# RETRY NOTE (2026-09-24): first real attempt failed -- k8sBlueGreenDeployStep
+# needs Harness's own blue/green color convention, incompatible with this
+# suite's fixed v1/v2 manifest naming (see EXECUTION_LOG.md). New fixture at
+# ../manifests/bluegreen/ (deployment.yaml + service.yaml, `${harnessColor}`
+# templated, single Service `trafficshift-bg`) built to retry this --
+# UNVERIFIED against the CD Unified plugin, fix from whatever the next real
+# error says. Requires a NEW Harness Service pointing at
+# manifests/bluegreen/ (not service_kubernetes_8f4a, which is v1/v2-based).
+#
+# DESIGN CHANGE from the v1/v2 model: BG has only ONE routable Service name
+# (`trafficshift-bg`) whose selector Harness itself swaps between colors on
+# cutover -- there's no second named backend to weight-split traffic against
+# the way trafficshift-v1/trafficshift-v2 worked for Rolling. So the
+# standalone k8sTrafficRoutingStep (0/100 weight split) doesn't apply here
+# and has been REMOVED below. Verification instead curls the primary
+# Service directly, before and after `bgDeploy`, to confirm the actual pod
+# behind it changed (http-echo text v1 -> v2) -- same "real resource
+# mutated" signal, just via BG's own Service-selector-swap mechanism
+# instead of an Istio VS. Re-add a routing step only if a real run shows
+# BG's `traffic_shift: true` built-in option is needed/wanted instead.
+#
+# Steps below are a placeholder shape for the retry -- confirm the exact
+# field name Harness needs for triggering promotion (this may require a
+# separate "Blue-Green Swap Services"-equivalent step; check the Studio
+# step picker for one alongside k8sBlueGreenDeployStep before assuming
+# `bgDeploy` alone does the swap) before treating this as ready to run.
 
 pipeline:
   clone:
@@ -41,27 +68,9 @@ pipeline:
           template:
             uses: k8sBlueGreenDeployStep
 
-        # --- REQUIRED_VALUES (run 1 shown; edit for run 2) ----------------
-        - name: Traffic Routing Config (Istio, BG cutover)
-          id: trConfig
-          template:
-            uses: k8sTrafficRoutingStep
-            with:
-              config_type: new
-              provider: istio
-              resource_name: trafficshift-vs
-              hosts:
-                - trafficshift
-              routes:
-                - type: http
-                  name: route1
-                  destinations:
-                    - host: trafficshift-v1
-                      weight: 100
-                    - host: trafficshift-v2
-                      weight: 0
-
-        - name: verify BG cutover reaches expected version
+        # --- REQUIRED_VALUES (run 1 shown: deploy v1 as the -text arg in
+        # ../manifests/bluegreen/deployment.yaml; edit to v2 for run 2) ------
+        - name: verify BG deploy reaches expected version
           id: verifyRouting
           run:
             container:
@@ -73,10 +82,10 @@ pipeline:
             script: |-
               set -e
               for i in 1 2 3 4 5; do
-                got=$(curl -s --max-time 5 http://trafficshift.<YOUR_ISTIO_NAMESPACE>.svc.cluster.local/)
+                got=$(curl -s --max-time 5 http://trafficshift-bg.<YOUR_ISTIO_NAMESPACE>.svc.cluster.local/)
                 echo "attempt $i: got '$got', expect '$EXPECT_VERSION'"
                 if [ "$got" = "$EXPECT_VERSION" ]; then
-                  echo "PASS: BG cutover routed to $EXPECT_VERSION"
+                  echo "PASS: BG deploy serving $EXPECT_VERSION"
                   exit 0
                 fi
                 sleep 2

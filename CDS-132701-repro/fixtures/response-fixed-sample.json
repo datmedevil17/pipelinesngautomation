@@ -1,0 +1,35 @@
+{
+  "status": "SUCCESS",
+  "data": [
+    {
+      "buildDetails": {
+        "number": "some/file/path/one.zip",
+        "revision": "some/file/path/one.zip",
+        "description": null,
+        "artifactPath": "some/file/path/one.zip",
+        "buildUrl": null,
+        "buildDisplayName": null,
+        "buildFullDisplayName": null,
+        "artifactFileSize": "1024",
+        "uiDisplayName": "Build# some/file/path/one.zip",
+        "updateTime": null,
+        "status": null,
+        "buildParameters": {
+          "bucketName": "cdp-serverless",
+          "versionId": null,
+          "artifactPath": "some/file/path/one.zip",
+          "buildNo": "some/file/path/one.zip",
+          "artifactFileSize": "1024",
+          "url": "https://s3.amazonaws.com/cdp-serverless/some/file/path/one.zip",
+          "key": "some/file/path/one.zip"
+        },
+        "metadata": {},
+        "labels": {},
+        "artifactFileMetadataList": [],
+        "artifactDownloadMetadata": []
+      }
+    }
+  ],
+  "metaData": null,
+  "correlationId": "REDACTED"
+}

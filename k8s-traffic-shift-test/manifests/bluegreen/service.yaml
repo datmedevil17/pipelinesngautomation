@@ -1,0 +1,16 @@
+# Primary Service for the BG scenario. Selector includes ${harnessColor}
+# so Harness can swap it between "blue"/"green" on cutover -- this is what
+# the Traffic Routing step's `hosts: [trafficshift-bg]` and the verify
+# step's curl target hit. UNVERIFIED against the CD Unified plugin, same
+# caveat as deployment.yaml in this folder.
+apiVersion: v1
+kind: Service
+metadata:
+  name: trafficshift-bg
+spec:
+  selector:
+    app: trafficshift-bg
+    harness.io/color: ${harnessColor}
+  ports:
+    - port: 80
+      targetPort: 5000

@@ -48,13 +48,20 @@ pipeline:
               connector: account.harnessImage
             shell: sh
             output:
-              - PROVIDER
-              - RESOURCE_NAME
-              - HOST
-              - V1_WEIGHT_CONFIG
-              - V2_WEIGHT_CONFIG
-              - V1_WEIGHT_INHERIT
-              - V2_WEIGHT_INHERIT
+              - name: PROVIDER
+                alias: PROVIDER
+              - name: RESOURCE_NAME
+                alias: RESOURCE_NAME
+              - name: HOST
+                alias: HOST
+              - name: V1_WEIGHT_CONFIG
+                alias: V1_WEIGHT_CONFIG
+              - name: V2_WEIGHT_CONFIG
+                alias: V2_WEIGHT_CONFIG
+              - name: V1_WEIGHT_INHERIT
+                alias: V1_WEIGHT_INHERIT
+              - name: V2_WEIGHT_INHERIT
+                alias: V2_WEIGHT_INHERIT
             script: |-
               export PROVIDER=istio
               export RESOURCE_NAME=trafficshift-vs

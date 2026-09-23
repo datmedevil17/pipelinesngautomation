@@ -1,0 +1,50 @@
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: VMS serverless deploy test
+      id: vmsserverlessdeploy
+      service: sls_github_ecr_llale
+      environment:
+        id: ServerlessEnv_ifWGy
+        deploy-to: infra_VVjIq
+      steps:
+
+        # ===================================================================
+        # Locate package.json before the plugin needs it (PLUGIN_SERVERLESS_FILE_PATH
+        # is a bare relative file name, not a directory, so `cd` on it never works).
+        # Mirrors the pre_exec_cmd workaround documented in
+        # declaredDefaultTest/pipeline-run5.yaml for serverlessPackageStep/DeployStep.
+        # ===================================================================
+        - name: npm install
+          id: npmInstall
+          run:
+            container:
+              image: node:20-alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -eu
+              d=$(find /harness -type f -name package.json -path '*serverless*' -not -path '*/node_modules/*' 2>/dev/null | head -1)
+              echo "package.json: $d"
+              cd "$(dirname "$d")" && npm install
+
+        # ===================================================================
+        # VMS STEP -- serverlessDeployAction@1.0.2 (run.uses: serverless-deploy)
+        # ===================================================================
+        - name: serverless deploy
+          id: serverlessDeploy
+          template:
+            uses: serverlessDeployAction@1.0.2
+            with:
+              log_level: debug
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

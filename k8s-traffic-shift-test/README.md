@@ -47,6 +47,38 @@ pipeline **variable you edit and re-run**, the same substitution this repo
 already uses elsewhere (see `CDS-126515-test`'s "edit the service, re-run"
 pattern). Flagging this as an open DSL-capability gap, not claiming parity.
 
+## Cross-step expression gap (T15722, T15726) -- confirmed 2026-09-24 on real cluster
+
+`rolling-istio-expressions/` and `rolling-k8snative-expressions/` drive the
+Traffic Routing steps' `provider`/`resource_name`/`hosts`/`gateways`/route
+weight fields via `${{steps.setFields.output.outputVariables.X}}`, reading
+an earlier `run:` step's exported outputs instead of hardcoding literals.
+
+Real execution against `cd-play`/`k8-traffic-shift-poc` proved this does
+**not** resolve when the consuming step is a `deploy:`-type step
+(`k8sTrafficRoutingStep`): the step's INPUT PARAMETERS dump showed the
+literal unresolved `${{steps...}}` string for `PROVIDER`/`RESOURCE_NAME`/
+`HOSTNAMES`, and opaque CEL placeholders for the route weights, causing
+`Input param validation has failed` (`PROVIDER value '${{...}}' does not
+match pattern '^(istio|k8s-native)$'`).
+
+An isolation test (`rolling-istio-expressions/pipeline-isolation-test.yaml`,
+run `pipeline_03d5 #8`) confirmed the same exact expression **does** resolve
+correctly when consumed by a plain `run:` step's own `env:` block
+(`PROVIDER=istio`, `RESOURCE_NAME=trafficshift-vs`, `V1_WEIGHT_CONFIG=100`
+all printed correctly). So this is not a syntax mistake or account issue --
+it's a confirmed DSL/plugin-input-resolution gap: `${{steps.<id>.output.
+outputVariables.X}}` only resolves inside `run:` steps, not inside a
+`deploy:` step's `with:` block.
+
+**Status: BLOCKED**, both scenarios, by this gap -- not portable as designed
+under the current CD Unified DSL. Both legacy tests were `@Test(enabled=
+false)` and were never actually run in the legacy suite either (zero
+regression risk). Full trace: `rolling-istio-expressions/EXECUTION_LOG.md`.
+This is separate from, and additional to, the runtime-input gap above --
+T15723/T15727 use the pipeline-variable mechanism instead of step-output
+chaining and are not known to hit this wall.
+
 ## The 11 cases
 
 | Folder | Legacy ticket | Strategy | Provider | Legacy status |

@@ -1,0 +1,67 @@
+{
+  "status": "SUCCESS",
+  "data": [
+    {
+      "buildDetails": {
+        "number": null,
+        "revision": null,
+        "description": null,
+        "artifactPath": null,
+        "buildUrl": null,
+        "buildDisplayName": null,
+        "buildFullDisplayName": null,
+        "artifactFileSize": null,
+        "uiDisplayName": null,
+        "updateTime": null,
+        "status": null,
+        "buildParameters": {},
+        "metadata": {},
+        "labels": {},
+        "artifactFileMetadataList": [],
+        "artifactDownloadMetadata": []
+      }
+    },
+    {
+      "buildDetails": {
+        "number": null,
+        "revision": null,
+        "description": null,
+        "artifactPath": null,
+        "buildUrl": null,
+        "buildDisplayName": null,
+        "buildFullDisplayName": null,
+        "artifactFileSize": null,
+        "uiDisplayName": null,
+        "updateTime": null,
+        "status": null,
+        "buildParameters": {},
+        "metadata": {},
+        "labels": {},
+        "artifactFileMetadataList": [],
+        "artifactDownloadMetadata": []
+      }
+    },
+    {
+      "buildDetails": {
+        "number": null,
+        "revision": null,
+        "description": null,
+        "artifactPath": null,
+        "buildUrl": null,
+        "buildDisplayName": null,
+        "buildFullDisplayName": null,
+        "artifactFileSize": null,
+        "uiDisplayName": null,
+        "updateTime": null,
+        "status": null,
+        "buildParameters": {},
+        "metadata": {},
+        "labels": {},
+        "artifactFileMetadataList": [],
+        "artifactDownloadMetadata": []
+      }
+    }
+  ],
+  "metaData": null,
+  "correlationId": "REDACTED"
+}
