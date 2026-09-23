@@ -5,6 +5,14 @@ metadata:
   labels:
     app: trafficshift
     version: v1
+  # Canary/BG-type deploy steps only support one "workload" (Deployment) per
+  # manifest set (see canary-istio-checkrouting/EXECUTION_LOG.md) -- this
+  # annotation excludes v1 from that check so it applies directly, leaving
+  # v2 as the one workload Canary/BG mechanics manage. Rolling deploy is
+  # unaffected (no such single-workload restriction there; T15721/T15723/
+  # T15815 already passed with both v1/v2 present, no annotation needed).
+  annotations:
+    harness.io/direct-apply: "true"
 spec:
   replicas: 1
   selector:
