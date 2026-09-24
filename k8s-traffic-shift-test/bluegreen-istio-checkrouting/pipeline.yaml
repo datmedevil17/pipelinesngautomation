@@ -45,11 +45,12 @@
 # instead of an Istio VS. Re-add a routing step only if a real run shows
 # BG's `traffic_shift: true` built-in option is needed/wanted instead.
 #
-# Steps below are a placeholder shape for the retry -- confirm the exact
-# field name Harness needs for triggering promotion (this may require a
-# separate "Blue-Green Swap Services"-equivalent step; check the Studio
-# step picker for one alongside k8sBlueGreenDeployStep before assuming
-# `bgDeploy` alone does the swap) before treating this as ready to run.
+# CONFIRMED via Studio step picker (2026-09-24): no separate "swap"/
+# "promote" step exists -- `k8sBlueGreenDeployStep` is the only BG-related
+# step, and it uses the `deploy:` key (same as k8sTrafficRoutingStep), not
+# `template:`. `traffic_shift` left `false` here since we're using BG's own
+# Service-selector-swap mechanism (see DESIGN CHANGE note above), not its
+# built-in Istio-VS traffic-shift option.
 
 pipeline:
   clone:
@@ -65,8 +66,25 @@ pipeline:
       steps:
         - name: Blue-Green Deploy
           id: bgDeploy
-          template:
+          deploy:
             uses: k8sBlueGreenDeployStep
+            with:
+              traffic_shift: true
+              skip_dry_run: false
+              pruning: false
+              skip_unchanged_manifest: false
+              manifests: ${{runtime.manifestPath}}
+              kubeconfig: ${{infra.kube_config_path}}
+              namespace: ${{infra.namespace}}
+              release: ${{infra.releaseName}}
+              apply_timeout: 5m
+              log_level: info
+              skip_resource_versioning: false
+              print_manifests: false
+              server_side_apply: false
+              skip_steady_state_check: false
+              steady_state_timeout: 5m
+              describe_resources: false
 
         # --- REQUIRED_VALUES (run 1 shown: deploy v1 as the -text arg in
         # ../manifests/bluegreen/deployment.yaml; edit to v2 for run 2) ------

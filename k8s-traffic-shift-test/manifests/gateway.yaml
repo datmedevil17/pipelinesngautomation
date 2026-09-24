@@ -1,0 +1,20 @@
+# Pre-provisioned Gateway API prerequisite for the k8s-native provider group
+# (T15724/T15726/T15727/T15816/T15818) -- applied directly to the cluster,
+# NOT part of any Harness Service's manifest set (see rolling-k8snative-
+# config-inherit/pipeline.yaml's <needsSetup> note: "already applied in the
+# target namespace"). GatewayClass `istio` confirmed ACCEPTED via
+# `kubectl get gatewayclass` once the Gateway API CRDs were installed.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: trafficshift-gateway
+  namespace: traffic-shift-demo
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same

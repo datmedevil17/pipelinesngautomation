@@ -1,0 +1,184 @@
+# CDS-130615 repro -- "run ng service in unified" silently drops a values/params
+# manifest declared with store InheritFromManifest.
+#
+# ---------------------------------------------------------------------------
+# WHAT THE BUG IS
+# ---------------------------------------------------------------------------
+# When a Unified pipeline stage points `service:` at a CLASSIC (NG) service,
+# ng-manager converts that classic service into the Unified manifest shape
+# on the fly (TemplateBasedManifestMapper -> UnifiedConversionRegistry).
+#
+# That registry has TWO tables that must agree for a store type to survive
+# conversion:
+#   STORE_TYPE_MAP   -- DOES map StoreConfigType.InheritFromManifest -> StoreType.INHERIT
+#   STORE_ACTION_MAP -- does NOT have an entry for InheritFromManifest
+#
+# convertManifest() only consults STORE_ACTION_MAP. It returns null for an
+# InheritFromManifest values/params manifest, and the caller does
+# `.filter(Objects::nonNull)` -- so the manifest is DROPPED, silently, with
+# only a DEBUG log line ("Manifest type {} with store {} not onboarded for
+# template-based conversion"). No error reaches the user. The primary k8s
+# manifest still converts fine, so the service conversion "succeeds" overall
+# -- it just quietly loses the override.
+#
+# ---------------------------------------------------------------------------
+# HOW TO READ THE RESULT
+# ---------------------------------------------------------------------------
+#   evidence    green,  but prints whether the inherited values manifest
+#               survived conversion (look at serviceOutput.manifests.*)
+#   dryrun      LOAD-BEARING -- renders the k8s manifest against whatever
+#               values actually made it through
+#   rendered    asserts the specific proof/replicaCount/image/containerPort
+#               keys that ONLY exist in k8sValues/values-inherit.yaml
+#
+# BEFORE the fix: `rendered` fails -- deployment.yaml still has raw
+#   "{{ .Values.* }}" go-template left in it, because the inherited values
+#   manifest never reached the fetch/render steps at all.
+# AFTER  the fix: `rendered` passes with proof=INHERIT-WORKED, replicas=9,
+#   image=nginx:1.26, containerPort=9090.
+#
+# ---------------------------------------------------------------------------
+# BEFORE RUNNING
+# ---------------------------------------------------------------------------
+# 1. Commit and push CDS-130615-test/ -- fetched from git, not your working copy.
+# 2. Create a CLASSIC (NG) Kubernetes service (NOT a unified/simplified
+#    service) with:
+#      - a primary K8s manifest, store = Git/GitHub, paths: CDS-130615-test/k8s
+#      - a Values manifest, store = "Inherit From Manifest"
+#        (io.harness.cdng.manifest.ManifestStoreType#InheritFromManifest --
+#        this is the store option shown in the screenshot on CDS-130615),
+#        paths: CDS-130615-test/k8sValues/values-inherit.yaml
+#    This is the exact classic-NG config whose store type has no Unified
+#    parity today.
+# 3. Point this pipeline's `service:` at that CLASSIC service's identifier.
+#    Point environment/deploy-to at any real K8s env+infra in your account.
+# 4. Replace every <YOUR_...> placeholder below.
+#
+# OPTIONAL NEGATIVE CASE (mirrors NG's own guard):
+#   Change the primary manifest's store to Harness File Store on the same
+#   classic service. NG explicitly REJECTS InheritFromManifest in that case
+#   (K8sStepHelper.java:797 / NativeHelmStepHelper.java:373,
+#   "InheritFromManifest store type is not supported with Manifest
+#   identifier ..."). A correct Unified port should reject it too, loudly,
+#   at conversion time -- not drop it silently, and not let it crash deep
+#   inside ManifestsStep with "Template not found at path...".
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-130615 ng-service-in-unified repro
+      id: cds130615ngservice
+      service: <YOUR_CLASSIC_NG_K8S_SERVICE_ID>
+      environment:
+        id: <YOUR_K8S_ENV_ID>
+        deploy-to: <YOUR_K8S_INFRA_ID>
+      steps:
+
+        # ===================================================================
+        # STEP 1 -- evidence. Always runs. Shows what actually survived the
+        # classic-service -> Unified conversion.
+        # ===================================================================
+        - name: CDS-130615 conversion evidence
+          id: evidence
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              OVERRIDES: ${{serviceOutput.manifests.overrides}}
+              TO_TEMPLATE: ${{serviceOutput.manifests.toTemplate}}
+              TO_RENDER: ${{serviceOutput.manifests.toRender}}
+              PRIMARY_TYPE: ${{serviceOutput.manifests.primary.uses}}
+            script: |-
+              set -u
+              echo "primary type : $PRIMARY_TYPE"
+              echo "overrides    : $OVERRIDES"
+              echo "toTemplate   : $TO_TEMPLATE"
+              echo "toRender     : $TO_RENDER"
+              echo
+              echo "----- verdict -----"
+              case "$OVERRIDES" in
+                *values-inherit.yaml*)
+                  echo "  inherited values manifest SURVIVED conversion."
+                  echo "  Expect the Dry Run + assert steps below to PASS." ;;
+                *)
+                  echo "  BUG PRESENT -- inherited values manifest is ABSENT."
+                  echo "  The InheritFromManifest values manifest never reached"
+                  echo "  serviceOutput.manifests at all -- it was dropped during"
+                  echo "  classic-service -> Unified conversion (silent, DEBUG-only"
+                  echo "  log in TemplateBasedManifestMapper). Expect Dry Run below"
+                  echo "  to still render raw go-template." ;;
+              esac
+
+        # ===================================================================
+        # STEP 2 -- LOAD-BEARING. Renders the manifest against whatever
+        # values actually made it through conversion + fetch + templating.
+        # ===================================================================
+        - name: Dry Run
+          id: dryrun
+          template:
+            uses: k8sDryRunStep
+
+        # ===================================================================
+        # STEP 3 -- asserts the specific values that exist ONLY in
+        # k8sValues/values-inherit.yaml.
+        # ===================================================================
+        - name: CDS-130615 rendered manifest
+          id: rendered
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+
+              m=$(find /harness -type f -name deployment.yaml 2>/dev/null | sort | head -1)
+              if [ -z "$m" ]; then
+                echo "FATAL: no deployment.yaml anywhere under /harness."
+                find /harness -maxdepth 7 2>/dev/null | sort | sed 's/^/  /'
+                exit 2
+              fi
+
+              echo "manifest under test: $m"
+              echo "===== contents ====="
+              cat "$m"
+              echo
+
+              val() { sed -n "s/^[[:space:]]*$1:[[:space:]]*//p" "$m" | head -1 | tr -d "'\""; }
+              chk() {
+                if [ "$3" = "$2" ]; then printf '  PASS  %-24s %s\n' "$1" "$3"
+                else printf '  FAIL  %-24s got=[%s] want=[%s]\n' "$1" "$3" "$2"; fail=1; fi
+              }
+
+              echo "===== asserts (every key supplied ONLY by values-inherit.yaml) ====="
+              chk "proof"         "INHERIT-WORKED" "$(val proof)"
+              chk "replicaCount"  "9"              "$(val replicaCount)"
+              chk "image"         "nginx:1.26"     "$(val image)"
+              chk "containerPort" "9090"           "$(val containerPort)"
+
+              echo
+              if grep -q '{{' "$m"; then
+                echo "  FAIL  raw go-template left in manifest -- values never applied"
+                fail=1
+              fi
+
+              echo
+              if [ "$fail" -eq 0 ]; then
+                echo "RESULT: PASS -- InheritFromManifest values reached the manifest. CDS-130615 fixed."
+              else
+                echo "RESULT: FAIL -- see step 1's verdict first."
+              fi
+              exit $fail
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

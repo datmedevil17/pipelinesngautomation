@@ -20,6 +20,26 @@
 # TWO RUNS: run 1 = canary at 20% (v1=80/v2=20, shown below); run 2 =
 # promote further and re-run.
 #
+# GATEWAY API CAVEAT (real, confirmed on T15816 -- see
+# ../bluegreen-k8snative-checkrouting/EXECUTION_LOG.md): a Gateway API
+# HTTPRoute only intercepts traffic arriving through its parent Gateway's
+# own listener/IP, NOT plain internal Service DNS (`*.svc.cluster.local`)
+# the way Istio's mesh-wide VirtualService does. Verify script below curls
+# the Gateway's own LB address with an explicit `Host:` header instead of
+# an internal DNS name. Confirmed real LB address via `kubectl get gateway
+# trafficshift-gateway -o jsonpath='{.status.addresses[0].value}'` --
+# re-check before running, it can change if the Gateway/LB is recreated.
+#
+# `resource_name` set to `trafficshift-canary-route` (not `trafficshift-
+# route`, already owned by ../rolling-k8snative-config-inherit/'s T15724
+# HTTPRoute) to avoid cross-ticket resource collisions on the shared cluster.
+#
+# Reuses the same v1/v2 fixture as canary-istio-checkrouting/ (T15819) --
+# `manifests/v1/deployment.yaml` already carries the
+# `harness.io/direct-apply: "true"` annotation Canary needs for its
+# single-workload restriction (see that ticket's EXECUTION_LOG.md); no new
+# manifest changes needed here.
+#
 # BEFORE RUNNING: git push, create ../service.yaml, Canary-capable K8s
 # Direct infra in a cluster with Gateway API CRDs + a `trafficshift-gateway`
 # Gateway already applied in the target namespace. Fill in every <YOUR_...>.
@@ -31,9 +51,9 @@ pipeline:
   stages:
     - name: CDS-T15818 canary k8s-native config-and-checkrouting
       id: cds_t15818
-      service: <YOUR_SERVICE_ID>
+      service: service_kubernetes_8f4a
       environment:
-        id: <YOUR_ENV_ID>
+        id: environment_env_a193
         deploy-to: <YOUR_INFRA_ID>
       steps:
         - name: Canary Deploy
@@ -49,7 +69,7 @@ pipeline:
             with:
               config_type: new
               provider: k8s-native
-              resource_name: trafficshift-route
+              resource_name: trafficshift-canary-route
               hosts:
                 - trafficshift
               gateways:
@@ -74,12 +94,13 @@ pipeline:
               EXPECT_V2_MIN_PCT: "5"
               EXPECT_V2_MAX_PCT: "40"
               SAMPLES: "50"
+              GATEWAY_ADDR: 136.109.237.207
             script: |-
               set -e
               v2=0
               i=0
               while [ "$i" -lt "$SAMPLES" ]; do
-                got=$(curl -s --max-time 5 http://trafficshift.<YOUR_GATEWAY_NAMESPACE>.svc.cluster.local/)
+                got=$(curl -s --max-time 5 -H "Host: trafficshift" http://$GATEWAY_ADDR/)
                 if [ "$got" = "v2" ]; then v2=$((v2 + 1)); fi
                 i=$((i + 1))
               done
@@ -95,8 +116,8 @@ pipeline:
 
       runtime:
         kubernetes:
-          namespace: <YOUR_GATEWAY_NAMESPACE>
-          connector: <YOUR_K8S_CONNECTOR>
+          namespace: traffic-shift-demo
+          connector: connector_K8sCluster_a7ec
           automount-service-token: true
           pull: always
       timeout: 15m

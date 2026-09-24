@@ -1,0 +1,4 @@
+proof: INHERIT-WORKED
+replicaCount: 9
+image: nginx:1.26
+containerPort: 9090

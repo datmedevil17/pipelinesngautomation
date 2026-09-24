@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cds130615-repro
+data:
+  proof: "{{ .Values.proof }}"
+  replicaCount: "{{ .Values.replicaCount }}"
+  image: "{{ .Values.image }}"
+  containerPort: "{{ .Values.containerPort }}"

@@ -12,12 +12,32 @@
 # folders: a `trafficshift-gateway` Gateway resource must pre-exist in the
 # namespace before the HTTPRoute this step creates can attach to it.
 #
-# TWO RUNS: run 1 EXPECT_VERSION=v1 (weights below); run 2 flip EXPECT_VERSION
-# to v2 and weights to v1=0/v2=100.
+# REUSES the BG fixture built for bluegreen-istio-checkrouting/ (T15817):
+# service_kubernetes_675d_bg, manifests at ../manifests/bluegreen/
+# (${harnessColor}-templated Deployment + primary Service `trafficshift-bg`).
+# k8sBlueGreenDeployStep auto-creates `trafficshift-bg-stage` alongside it
+# (confirmed real in T15817) -- same two real Service names used as the
+# routing destinations below.
 #
-# BEFORE RUNNING: git push, create ../service.yaml, Blue-Green-capable K8s
-# Direct infra in a cluster with Gateway API CRDs + a `trafficshift-gateway`
-# Gateway already applied in the target namespace. Fill in every <YOUR_...>.
+# GATEWAY API CAVEAT (real, not carried over from the Istio version): a
+# Gateway API HTTPRoute only intercepts traffic that arrives through its
+# parent Gateway's own listener/IP -- unlike Istio's mesh-wide VirtualService,
+# it does NOT intercept plain internal Service DNS lookups
+# (`*.svc.cluster.local`). The Istio version's verify script (curl an
+# internal Service DNS name) would silently bypass the HTTPRoute entirely
+# here and just hit whatever the literal Service's own selector points to.
+# Fixed below: curl the Gateway's own LB address with an explicit `Host:`
+# header matching the HTTPRoute's `hostnames` entry. Confirmed real LB
+# address: `kubectl get gateway trafficshift-gateway -n <namespace> -o
+# jsonpath='{.status.addresses[0].value}'` -- re-check before running, it can
+# change if the Gateway/LB is ever recreated.
+#
+# TWO RUNS: run 1 EXPECT_VERSION=v1 (weights below); run 2 flip EXPECT_VERSION
+# to v2 and weights to v1=0/v2=100 -- requires re-running bgDeploy against a
+# `-text=v2` edit of ../manifests/bluegreen/deployment.yaml first (same
+# convention as T15817 run 2, not yet executed there either).
+#
+# BEFORE RUNNING: git push. Fill in every <YOUR_...>.
 
 pipeline:
   clone:
@@ -26,37 +46,54 @@ pipeline:
   stages:
     - name: CDS-T15816 bluegreen k8s-native config-and-checkrouting
       id: cds_t15816
-      service: <YOUR_SERVICE_ID>
+      service: service_kubernetes_675d_bg
       environment:
-        id: <YOUR_ENV_ID>
+        id: environment_env_a193
         deploy-to: <YOUR_INFRA_ID>
       steps:
         - name: Blue-Green Deploy
           id: bgDeploy
-          template:
+          deploy:
             uses: k8sBlueGreenDeployStep
+            with:
+              traffic_shift: false
+              skip_dry_run: false
+              pruning: false
+              skip_unchanged_manifest: false
+              manifests: ${{runtime.manifestPath}}
+              kubeconfig: ${{infra.kube_config_path}}
+              namespace: ${{infra.namespace}}
+              release: ${{infra.releaseName}}
+              apply_timeout: 5m
+              log_level: info
+              skip_resource_versioning: false
+              print_manifests: false
+              server_side_apply: false
+              skip_steady_state_check: false
+              steady_state_timeout: 5m
+              describe_resources: false
 
         # --- REQUIRED_VALUES (run 1 shown; edit for run 2) ----------------
         - name: Traffic Routing Config (k8s-native, BG cutover)
           id: trConfig
-          template:
+          deploy:
             uses: k8sTrafficRoutingStep
             with:
               config_type: new
               provider: k8s-native
-              resource_name: trafficshift-route
+              resource_name: trafficshift-bg-route
               hosts:
-                - trafficshift
+                - trafficshift-bg
               gateways:
                 - trafficshift-gateway
               routes:
                 - type: http
                   name: route1
                   destinations:
-                    - host: trafficshift-v1
-                      weight: 100
-                    - host: trafficshift-v2
+                    - host: trafficshift-bg
                       weight: 0
+                    - host: trafficshift-bg-stage
+                      weight: 100
 
         - name: verify BG cutover reaches expected version
           id: verifyRouting
@@ -67,10 +104,11 @@ pipeline:
             shell: sh
             env:
               EXPECT_VERSION: v1
+              GATEWAY_ADDR: 136.109.237.207
             script: |-
               set -e
               for i in 1 2 3 4 5; do
-                got=$(curl -s --max-time 5 http://trafficshift.<YOUR_GATEWAY_NAMESPACE>.svc.cluster.local/)
+                got=$(curl -s --max-time 5 -H "Host: trafficshift-bg" http://$GATEWAY_ADDR/)
                 echo "attempt $i: got '$got', expect '$EXPECT_VERSION'"
                 if [ "$got" = "$EXPECT_VERSION" ]; then
                   echo "PASS: BG cutover routed to $EXPECT_VERSION"
@@ -84,8 +122,8 @@ pipeline:
 
       runtime:
         kubernetes:
-          namespace: <YOUR_GATEWAY_NAMESPACE>
-          connector: <YOUR_K8S_CONNECTOR>
+          namespace: traffic-shift-demo
+          connector: connector_K8sCluster_a7ec
           automount-service-token: true
           pull: always
       timeout: 15m
