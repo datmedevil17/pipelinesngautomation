@@ -1,0 +1,51 @@
+# CDS-122512 svc 07 -- points at k8s-slow/ (readinessProbe initialDelaySeconds
+# 60), with PRE/POST SteadyStateCheck hooks that each stamp a unix-epoch
+# timestamp (pipelines stage longRunningTiming).
+#
+# The point: prove POST really executes AFTER the steady-state poll finishes
+# waiting, not immediately back-to-back with PRE. If the implementation
+# mistakenly fires both hooks around the poll call without actually blocking
+# on poll completion, T_post - T_pre would be ~0s instead of >= ~50s (the pod
+# needs ~60s to go Ready). The pipeline's assert step computes this delta.
+# BEFORE the fix: neither stamp file exists.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/k8s-slow
+            values: []
+    hooks:
+      - identifier: preTiming
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-STEADY-HOOK (timing) RAN"
+            date -u +%s > /harness/cds122512-k8s-timing-pre.stamp
+        order: 1
+      - identifier: postTiming
+        type: PostHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "POST-STEADY-HOOK (timing) RAN"
+            date -u +%s > /harness/cds122512-k8s-timing-post.stamp
+        order: 1

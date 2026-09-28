@@ -1,0 +1,91 @@
+# CDS-122512 -- confirms the pod actually pulled the NEW plugin image tags
+# (harnessdev/temp:cds122512-k8s-plugin / cds122512-helm-plugin), not the
+# previously-hardcoded 332-ci-manager render/templating template image, so a
+# green run in the other pipelines here can't be accidentally explained by
+# "the old image was cached and happened to already do the right thing".
+#
+# This is best-effort: it needs the pod's service account to have `get pods`
+# in-namespace (RBAC), which `automount-service-token: true` + the account's
+# default CD service account often provides, but is NOT guaranteed in every
+# cluster. If the kubectl step fails with a 403, treat this case as "check
+# manually" -- look at the Rolling Deploy / Helm Deploy step's own log header
+# line, which prints the image reference it pulled, and confirm the tag by
+# eye instead.
+#
+# Reuses services/01-k8s-happy-hooks.yaml and services/08-helm-happy-hooks.yaml
+# so this doubles as a rerun of the happy-path assertions.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-122512 - image tag check (k8s)
+      id: imageCheckK8s
+      service: <YOUR_SERVICE_ID_01>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: check pod images
+          id: checkImages
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              echo "===== containers in this pod ====="
+              kubectl get pod "$HOSTNAME" -n <YOUR_NAMESPACE> \
+                -o jsonpath='{range .spec.containers[*]}{.name}{"\t"}{.image}{"\n"}{end}' \
+                2>&1 || echo "(kubectl call failed -- likely missing RBAC, check step logs by eye instead)"
+              echo
+              echo "Looking for: harnessdev/temp:cds122512-k8s-plugin (or your chosen tag)"
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    - name: CDS-122512 - image tag check (helm)
+      id: imageCheckHelm
+      service: <YOUR_SERVICE_ID_08>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+
+        - name: check pod images
+          id: checkImages
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              echo "===== containers in this pod ====="
+              kubectl get pod "$HOSTNAME" -n <YOUR_NAMESPACE> \
+                -o jsonpath='{range .spec.containers[*]}{.name}{"\t"}{.image}{"\n"}{end}' \
+                2>&1 || echo "(kubectl call failed -- likely missing RBAC, check step logs by eye instead)"
+              echo
+              echo "Looking for: harnessdev/temp:cds122512-helm-plugin (or your chosen tag)"
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

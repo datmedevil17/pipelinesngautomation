@@ -1,0 +1,58 @@
+# CDS-122512 -- one service, three hook phases (FetchFiles, TemplateManifest,
+# SteadyStateCheck) on the same K8s deploy. service:
+# services/13-k8s-mixed-hook-phases.yaml.
+#
+# Regression guard for ServiceHooksStep.fetchHooksSweepingOutputForPhase,
+# whose existing dispatch is "POST_FETCH_FILES_HOOKS_NODE_ID -> post-fetch
+# path, everything else -> pre path". Adding steady-state node IDs without an
+# explicit branch could route POST_STEADY_STATE hooks through the FetchFiles
+# pre-path sweeping output by accident.
+#
+# BEFORE the fix: fetch + template stamps exist (already shipped per
+# CDS-130653), steady-state stamps do not.
+# AFTER the fix: all four stamps exist (fetch, template, steady-pre,
+# steady-post), each phase independent of the others.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-122512 - mixed hook phases regression
+      id: mixedHookPhases
+      service: <YOUR_SERVICE_ID_13>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              for f in mixed-fetch mixed-template mixed-steady-pre mixed-steady-post; do
+                if [ -f /harness/cds122512-k8s-$f.stamp ]; then
+                  echo "PASS: $f stamp present"
+                else
+                  echo "FAIL: $f stamp missing"
+                  fail=1
+                fi
+              done
+              exit $fail
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

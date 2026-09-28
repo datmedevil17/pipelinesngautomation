@@ -1,0 +1,76 @@
+# CDS-122512 -- explicit rollback must NOT re-trigger SteadyStateCheck hooks.
+# service: services/06-k8s-hooks-plus-rollback.yaml (counter files, not
+# stamps, so repeated runs are visible as extra lines).
+#
+# AFTER the fix: after `deploy`, both counter files have exactly 1 line.
+# After `rollback`, they must STILL have exactly 1 line each --
+# k8sRollingRollbackStep does not go through UnifiedServiceStep.
+# handleServiceHooksPart's SteadyStateCheck branch at all, so hooks must not
+# fire a second time.
+# BEFORE the fix: counter files never get created (0 lines) regardless of
+# rollback -- this stage only has teeth once svc01 (happyPath) already proves
+# hooks fire on a normal deploy.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-122512 k8s - hooks not re-triggered on rollback
+      id: hooksPlusRollback
+      service: <YOUR_SERVICE_ID_06>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: assert after deploy
+          id: assertAfterDeploy
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              echo "===== pre counter ====="
+              cat /harness/cds122512-k8s-rollback-pre.count 2>/dev/null || echo "(missing)"
+              echo "===== post counter ====="
+              cat /harness/cds122512-k8s-rollback-post.count 2>/dev/null || echo "(missing)"
+              pre_n=$(wc -l < /harness/cds122512-k8s-rollback-pre.count 2>/dev/null || echo 0)
+              post_n=$(wc -l < /harness/cds122512-k8s-rollback-post.count 2>/dev/null || echo 0)
+              echo "pre_lines=$pre_n post_lines=$post_n (expect 1/1 after the fix)"
+
+        - name: Rolling Rollback
+          id: rollback
+          template:
+            uses: k8sRollingRollbackStep
+
+        - name: assert after rollback
+          id: assertAfterRollback
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              pre_n=$(wc -l < /harness/cds122512-k8s-rollback-pre.count 2>/dev/null || echo 0)
+              post_n=$(wc -l < /harness/cds122512-k8s-rollback-post.count 2>/dev/null || echo 0)
+              echo "after rollback: pre_lines=$pre_n post_lines=$post_n"
+              if [ "$pre_n" -ne 1 ]; then echo "FAIL: pre-hook ran $pre_n times, expected exactly 1 (rollback re-triggered it)"; fail=1; fi
+              if [ "$post_n" -ne 1 ]; then echo "FAIL: post-hook ran $post_n times, expected exactly 1 (rollback re-triggered it)"; fail=1; fi
+              [ "$fail" -eq 0 ] && echo "PASS: rollback did not re-trigger SteadyStateCheck hooks"
+              exit $fail
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

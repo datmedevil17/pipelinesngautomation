@@ -1,0 +1,30 @@
+# Same as k8s/templates/deployment.yaml, but with a deliberately slow
+# readiness probe (initialDelaySeconds: 60) so the SteadyStateCheck poll takes
+# long enough to make PRE-hook-timestamp vs POST-hook-timestamp ordering
+# observable (case07, "long-running hooks").
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds122512-k8s-slow
+  labels:
+    app: cds122512-k8s-slow
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cds122512-k8s-slow
+  template:
+    metadata:
+      labels:
+        app: cds122512-k8s-slow
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.25
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 5

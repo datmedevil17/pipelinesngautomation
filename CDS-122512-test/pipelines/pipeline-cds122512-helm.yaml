@@ -1,0 +1,187 @@
+# CDS-122512 -- Helm SteadyStateCheck hooks. Helm mirror of
+# pipeline-cds122512-k8s.yaml. Uses helmBasicDeployStep, which composes
+# helmDeployAction (steady-state poll embedded inside it) -> helmTestAction.
+#
+# Requires: harnessdev/temp:cds122512-helm-plugin (or whatever tag the fix
+# was built + pushed to) wired into helmDeployAction's image reference before
+# running the AFTER pass.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    # =====================================================================
+    # STAGE 1 -- happy path. service: services/08-helm-happy-hooks.yaml
+    # =====================================================================
+    - name: CDS-122512 helm - happy path hooks
+      id: happyPath
+      service: <YOUR_SERVICE_ID_08>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              ls -la /harness/cds122512-helm-pre.stamp /harness/cds122512-helm-post.stamp 2>/dev/null
+              if [ ! -f /harness/cds122512-helm-pre.stamp ]; then echo "FAIL: no pre stamp"; fail=1; fi
+              if [ ! -f /harness/cds122512-helm-post.stamp ]; then echo "FAIL: no post stamp"; fail=1; fi
+              if [ -f /harness/cds122512-helm-pre.stamp ] && [ -f /harness/cds122512-helm-post.stamp ]; then
+                pre=$(cat /harness/cds122512-helm-pre.stamp)
+                post=$(cat /harness/cds122512-helm-post.stamp)
+                if [ "$pre" -le "$post" ]; then echo "PASS: pre <= post"; else echo "FAIL: pre after post"; fail=1; fi
+              fi
+              exit $fail
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =====================================================================
+    # STAGE 2 -- PreHook fails. service: services/09-helm-prehook-fails.yaml
+    # =====================================================================
+    - name: CDS-122512 helm - prehook fails
+      id: prehookFails
+      service: <YOUR_SERVICE_ID_09>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              ls -la /harness/cds122512-helm-posthook-after-prefail.stamp 2>/dev/null && \
+                { echo "FAIL: post-after-prefail stamp exists"; exit 1; } || \
+                echo "PASS: no post-after-prefail stamp"
+      failureStrategies:
+        - on:
+            errors: [ALL]
+            action:
+              type: MarkAsSuccess
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =====================================================================
+    # STAGE 3 -- PostHook fails. service: services/10-helm-posthook-fails.yaml
+    # Manual check: `deploy` step status must be FAILED, preok stamp exists.
+    # =====================================================================
+    - name: CDS-122512 helm - posthook fails
+      id: posthookFails
+      service: <YOUR_SERVICE_ID_10>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+      failureStrategies:
+        - on:
+            errors: [ALL]
+            action:
+              type: MarkAsSuccess
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =====================================================================
+    # STAGE 4 -- multi-hook order. service: services/11-helm-multi-hook-order.yaml
+    # =====================================================================
+    - name: CDS-122512 helm - multi-hook order
+      id: multiHookOrder
+      service: <YOUR_SERVICE_ID_11>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              for f in hook1 hook2; do
+                if [ -f /harness/cds122512-helm-$f.stamp ]; then echo "PASS: $f ran"; else echo "FAIL: $f did not run"; fail=1; fi
+              done
+              if [ -f /harness/cds122512-helm-hook3.stamp ]; then echo "FAIL: hook3 ran"; fail=1; else echo "PASS: hook3 never ran"; fi
+              exit $fail
+      failureStrategies:
+        - on:
+            errors: [ALL]
+            action:
+              type: MarkAsSuccess
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =====================================================================
+    # STAGE 5 -- no hooks. service: services/12-helm-no-hooks.yaml
+    # =====================================================================
+    - name: CDS-122512 helm - no hooks regression
+      id: noHooksRegression
+      service: <YOUR_SERVICE_ID_12>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

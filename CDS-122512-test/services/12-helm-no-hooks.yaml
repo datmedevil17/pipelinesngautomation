@@ -1,0 +1,21 @@
+# CDS-122512 svc 12 -- plain Helm service, no `hooks:` block. Regression
+# control mirroring svc 05 (pipelines stage noHooksRegression in
+# pipeline-cds122512-helm.yaml). Must PASS identically before and after.
+service:
+  uses: helm
+  with:
+    manifests:
+      sources:
+        - id: helm_chart
+          uses: helm-chart
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/helm/chart
+            values: []

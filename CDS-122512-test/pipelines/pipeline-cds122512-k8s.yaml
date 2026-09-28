@@ -1,0 +1,271 @@
+# CDS-122512 -- K8s SteadyStateCheck hooks. 6 stages, one per scenario.
+# Uses REAL deploy steps (k8sRollingDeployStep), not Dry Run -- unlike the
+# CDS-130653 FetchFiles/TemplateManifest hooks, SteadyStateCheck hooks only
+# fire around the actual steady-state poll, which a dry run never performs.
+#
+# Requires: harnessdev/temp:cds122512-k8s-plugin (or whatever tag the fix was
+# built + pushed to) wired into the k8s-steady-check step's image reference in
+# harness-core before running the AFTER pass. See ../README.md "Do I need to
+# rebuild plugin images?" for where that tag is hardcoded.
+#
+# Every stage: recon (dumps /harness before deploy) -> deploy -> assert (reads
+# stamp files under /harness written by the hook scripts themselves).
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    # =====================================================================
+    # STAGE 1 -- happy path. PRE + POST both succeed, in order.
+    # service: services/01-k8s-happy-hooks.yaml
+    # BEFORE: PASS, no stamp files. AFTER: PASS, both stamp files, pre < post.
+    # =====================================================================
+    - name: CDS-122512 k8s - happy path hooks
+      id: happyPath
+      service: <YOUR_SERVICE_ID_01>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: recon
+          id: recon
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "===== before deploy: /harness stamps ====="
+              ls -la /harness/cds122512-k8s-*.stamp 2>/dev/null || echo "  none yet - expected"
+
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              echo "===== stamps ====="
+              ls -la /harness/cds122512-k8s-pre.stamp /harness/cds122512-k8s-post.stamp 2>/dev/null
+              if [ ! -f /harness/cds122512-k8s-pre.stamp ]; then echo "FAIL: no pre stamp"; fail=1; fi
+              if [ ! -f /harness/cds122512-k8s-post.stamp ]; then echo "FAIL: no post stamp"; fail=1; fi
+              if [ -f /harness/cds122512-k8s-pre.stamp ] && [ -f /harness/cds122512-k8s-post.stamp ]; then
+                pre=$(cat /harness/cds122512-k8s-pre.stamp)
+                post=$(cat /harness/cds122512-k8s-post.stamp)
+                if [ "$pre" -le "$post" ]; then echo "PASS: pre ($pre) <= post ($post)"; else echo "FAIL: pre after post"; fail=1; fi
+              fi
+              exit $fail
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =====================================================================
+    # STAGE 2 -- PreHook fails. service: services/02-k8s-prehook-fails.yaml
+    # BEFORE: PASS (bug -- hook silently ignored). AFTER: FAIL at deploy,
+    # posthook-after-prefail stamp must NOT exist.
+    # =====================================================================
+    - name: CDS-122512 k8s - prehook fails
+      id: prehookFails
+      service: <YOUR_SERVICE_ID_02>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              echo "This step only runs if `deploy` was NOT failure-strategy-aborted."
+              echo "===== stamps (must be absent) ====="
+              ls -la /harness/cds122512-k8s-posthook-after-prefail.stamp 2>/dev/null && \
+                { echo "FAIL: post-after-prefail stamp exists -- pre-hook failure did not stop the chain"; exit 1; } || \
+                echo "PASS: no post-after-prefail stamp"
+      failureStrategies:
+        - on:
+            errors: [ALL]
+            action:
+              type: MarkAsSuccess
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =====================================================================
+    # STAGE 3 -- PostHook fails. service: services/03-k8s-posthook-fails.yaml
+    # BEFORE: PASS (bug). AFTER: preok stamp exists (rollout succeeded), but
+    # deploy step itself is reported FAILED (post hook failure = step failure).
+    # =====================================================================
+    - name: CDS-122512 k8s - posthook fails
+      id: posthookFails
+      service: <YOUR_SERVICE_ID_03>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+      failureStrategies:
+        - on:
+            errors: [ALL]
+            action:
+              type: MarkAsSuccess
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+      # Manual check after this stage: `deploy` step status must be FAILED,
+      # and /harness/cds122512-k8s-preok.stamp must exist (fetch its content
+      # from a later ad-hoc pipeline, or check the pod's workspace directly --
+      # this stage has no trailing assert step since a failed deploy step can
+      # skip subsequent steps depending on stage failure strategy).
+
+    # =====================================================================
+    # STAGE 4 -- multi-hook order + stop-on-failure.
+    # service: services/04-k8s-multi-hook-order.yaml
+    # BEFORE: PASS, no stamps. AFTER: hook1 stamp exists, hook2 stamp exists
+    # (it wrote its stamp then failed), hook3 stamp does NOT exist.
+    # =====================================================================
+    - name: CDS-122512 k8s - multi-hook order
+      id: multiHookOrder
+      service: <YOUR_SERVICE_ID_04>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              for f in hook1 hook2; do
+                if [ -f /harness/cds122512-k8s-$f.stamp ]; then echo "PASS: $f ran"; else echo "FAIL: $f did not run"; fail=1; fi
+              done
+              if [ -f /harness/cds122512-k8s-hook3.stamp ]; then echo "FAIL: hook3 ran -- chain did not stop on hook2 failure"; fail=1; else echo "PASS: hook3 never ran"; fi
+              exit $fail
+      failureStrategies:
+        - on:
+            errors: [ALL]
+            action:
+              type: MarkAsSuccess
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =====================================================================
+    # STAGE 5 -- no hooks configured. Pure regression control.
+    # service: services/05-k8s-no-hooks.yaml
+    # BEFORE and AFTER: PASS, identical behavior.
+    # =====================================================================
+    - name: CDS-122512 k8s - no hooks regression
+      id: noHooksRegression
+      service: <YOUR_SERVICE_ID_05>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+
+    # =====================================================================
+    # STAGE 6 -- long-running poll, timing check.
+    # service: services/07-k8s-long-running-hooks.yaml (points at k8s-slow/,
+    # readinessProbe initialDelaySeconds 60)
+    # BEFORE: no stamps. AFTER: both stamps exist, post - pre >= ~50s.
+    # =====================================================================
+    - name: CDS-122512 k8s - long-running poll timing
+      id: longRunningTiming
+      service: <YOUR_SERVICE_ID_07>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              if [ ! -f /harness/cds122512-k8s-timing-pre.stamp ] || [ ! -f /harness/cds122512-k8s-timing-post.stamp ]; then
+                echo "FAIL: missing stamp(s)"; exit 1
+              fi
+              pre=$(cat /harness/cds122512-k8s-timing-pre.stamp)
+              post=$(cat /harness/cds122512-k8s-timing-post.stamp)
+              delta=$((post - pre))
+              echo "pre=$pre post=$post delta=${delta}s"
+              if [ "$delta" -ge 45 ]; then
+                echo "PASS: post fired only after the ~60s readiness delay had elapsed"
+              else
+                echo "FAIL: delta too small -- POST likely fired without waiting for the poll"
+                fail=1
+              fi
+              exit $fail
+      runtime:
+        kubernetes:
+          namespace: <YOUR_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

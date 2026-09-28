@@ -1,0 +1,31 @@
+
+pipeline:
+  stages:
+    - name: VMS serverless smoke test
+      id: vmsserverlesssmoke
+      steps:
+        - name: serverless deploy
+          id: serverlessDeploy
+          run:
+            uses: serverless-deploy
+            version: "0.0.1"
+            env:
+              UNIFIED_PIPELINE: "true"
+              NODE_EXTRA_CA_CERTS: /tmp/aws-ca/extra-ca.pem
+              PLUGIN_HARNESS_CONNECTOR: ECRConnectorForAutomationTest
+              PLUGIN_LOG_LEVEL: debug
+              PLUGIN_CMD_TYPE: deploy
+              PLUGIN_WORK_DIR: /tmp/vms-smoke-test
+              PLUGIN_REGION: us-east-1
+              PLUGIN_STAGE: vmssmoke
+              PLUGIN_SERVERLESS_EXEC_PATH: serverless
+              PLUGIN_TIMEOUT: 10m
+              PLUGIN_INFRA_KEY: vms-smoke-test
+
+      runtime:
+        kubernetes:
+          namespace: do-not-delete-serverless
+          connector: account.cdautomationtest
+          automount-service-token: true
+          pull: always
+      timeout: 15m

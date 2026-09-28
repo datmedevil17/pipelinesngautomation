@@ -1,0 +1,82 @@
+# CDS-122512 svc 13 -- one service declaring hooks across all three
+# ServiceHookAction phases: FetchFiles, TemplateManifest (both already
+# implemented, per CDS-130653), and SteadyStateCheck (new). Regression guard
+# for ServiceHooksStep.fetchHooksSweepingOutputForPhase (pipelines stage
+# mixedHookPhases).
+#
+# Why this matters: that method's existing dispatch is
+# `POST_FETCH_FILES_HOOKS_NODE_ID -> post-fetch-files path, everything else ->
+# pre path`. Adding steady-state node IDs without an explicit branch risks
+# silently routing POST_STEADY_STATE hooks through the FetchFiles pre-path
+# sweeping output, which would either no-op them or corrupt the FetchFiles
+# hook's own data.
+# AFTER the fix: all three phase-pairs run independently, in this order per
+# their existing phase semantics: FetchFiles hooks -> TemplateManifest hooks
+# -> (rendering happens) -> SteadyStateCheck PRE -> poll -> SteadyStateCheck
+# POST. Each phase's stamp file must exist and only that phase's.
+# BEFORE the fix: FetchFiles and TemplateManifest stamps exist (already
+# working per CDS-130653); SteadyStateCheck stamps do not.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/k8s
+            values: []
+    hooks:
+      - identifier: preFetch
+        type: PreHook
+        actions:
+          - FetchFiles
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-FETCH-FILES HOOK RAN"
+            date -u +%s > /harness/cds122512-k8s-mixed-fetch.stamp
+        order: 1
+      - identifier: preTemplate
+        type: PreHook
+        actions:
+          - TemplateManifest
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-TEMPLATE-MANIFEST HOOK RAN"
+            date -u +%s > /harness/cds122512-k8s-mixed-template.stamp
+        order: 1
+      - identifier: preSteady
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-STEADY-STATE HOOK RAN"
+            date -u +%s > /harness/cds122512-k8s-mixed-steady-pre.stamp
+        order: 1
+      - identifier: postSteady
+        type: PostHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            test -f /harness/cds122512-k8s-mixed-steady-pre.stamp
+            echo "POST-STEADY-STATE HOOK RAN"
+            date -u +%s > /harness/cds122512-k8s-mixed-steady-post.stamp
+        order: 1

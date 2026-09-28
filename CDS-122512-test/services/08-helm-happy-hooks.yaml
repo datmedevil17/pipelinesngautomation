@@ -1,0 +1,53 @@
+# CDS-122512 svc 08 -- Helm deploy, one SteadyStateCheck PreHook + one
+# PostHook. Helm mirror of svc 01 (pipelines stage happyPath in
+# pipeline-cds122512-helm.yaml).
+#
+# Structurally different from K8s: Helm has no separate steady-state-check
+# step -- the poll is embedded inside helmDeployAction itself (guarded by a
+# PLUGIN_SKIP_STEADY_STATE_CHECK-style flag). So the fix here is env-var
+# injection into the SAME helm-plugin binary invocation, not a second step.
+# BEFORE the fix: neither hook runs, deploy succeeds silently.
+# AFTER the fix: PRE stamp predates the poll inside the helm plugin log,
+# POST stamp postdates it.
+service:
+  uses: helm
+  with:
+    manifests:
+      sources:
+        - id: helm_chart
+          uses: helm-chart
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/helm/chart
+            values: []
+    hooks:
+      - identifier: preSteadyCheck
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-STEADY-HOOK RAN (helm)"
+            date -u +%s > /harness/cds122512-helm-pre.stamp
+        order: 1
+      - identifier: postSteadyCheck
+        type: PostHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            test -f /harness/cds122512-helm-pre.stamp
+            echo "POST-STEADY-HOOK RAN (helm)"
+            date -u +%s > /harness/cds122512-helm-post.stamp
+        order: 1

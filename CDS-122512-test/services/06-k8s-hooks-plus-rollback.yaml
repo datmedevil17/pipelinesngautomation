@@ -1,0 +1,54 @@
+# CDS-122512 svc 06 -- SteadyStateCheck hooks alongside an explicit rollback
+# step (pipelines stage hooksPlusRollback). PRE and POST hooks each append a
+# line to a counter file instead of a stamp, so we can tell how many times
+# they ran across BOTH the initial deploy and the later rollback step.
+#
+# AFTER the fix: initial deploy runs PRE+POST once each (counter file has 1
+# line each). The explicit rollback step is a *different* step
+# (k8sRollingRollbackStep) that does not go through handleServiceHooksPart at
+# all -- rollback must NOT invoke SteadyStateCheck hooks a second time.
+# Counter files must still show exactly 1 line each after the rollback step
+# runs. If they show 2, the rollback path is wrongly re-triggering hooks.
+# BEFORE the fix: counter files never get created at all (0 lines either way)
+# -- can't distinguish "hooks skipped correctly on rollback" from "hooks
+# never ran" until the deploy-time behavior itself is fixed, which is why
+# svc 01 must be proven first.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/k8s
+            values: []
+    hooks:
+      - identifier: preCount
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-STEADY-HOOK RAN at $(date -u +%s)" >> /harness/cds122512-k8s-rollback-pre.count
+        order: 1
+      - identifier: postCount
+        type: PostHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "POST-STEADY-HOOK RAN at $(date -u +%s)" >> /harness/cds122512-k8s-rollback-post.count
+        order: 1

@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds122512-k8s
+  labels:
+    app: cds122512-k8s
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cds122512-k8s
+  template:
+    metadata:
+      labels:
+        app: cds122512-k8s
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.25
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 3

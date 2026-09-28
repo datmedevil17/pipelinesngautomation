@@ -1,0 +1,22 @@
+# CDS-122512 svc 05 -- plain K8s service, no `hooks:` block at all.
+# Pure regression control (pipelines stage noHooksRegression): the fix must
+# not change behavior for services that don't configure any hooks. Must
+# PASS identically before and after.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/k8s
+            values: []

@@ -1,0 +1,20 @@
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.40.0'
+
+provider:
+  name: aws
+  region: {{ .Values.region }}
+  stage: {{ .Values.stage }}
+  memorySize: {{ .Values.memorySize }}
+  ecr:
+    images:
+      appimage:
+        uri: {{ .Values.image }}
+
+functions:
+  hello:
+    image: appimage
+    events:
+      - httpApi:
+          path: /hello
+          method: get

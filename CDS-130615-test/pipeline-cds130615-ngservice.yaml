@@ -114,6 +114,42 @@ pipeline:
               esac
 
         # ===================================================================
+        # STEP 1b -- outcome backward-compat check (CDS-130615, post store.type
+        # preservation fix). Confirms the resolved v0 service YAML still
+        # reports the inherit manifest's OWN store.type as InheritFromManifest
+        # (NG parity -- NG never rewrites a persisted InheritFromManifest
+        # outcome), even though connectorRef/branch were borrowed from the
+        # primary for template rendering.
+        #
+        # Replace <YOUR_VALUES_MANIFEST_ID> with the identifier of the
+        # InheritFromManifest values manifest in your classic NG service.
+        # ===================================================================
+        - name: CDS-130615 outcome type check
+          id: outcometype
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            env:
+              STORE_TYPE: ${{ngService.spec.manifests.m2.manifest.spec.store.type}}
+              CONNECTOR_REF: ${{ngService.spec.manifests.m2.manifest.spec.store.spec.connectorRef}}
+            script: |-
+              set -u
+              echo "store.type    : $STORE_TYPE"
+              echo "connectorRef  : $CONNECTOR_REF"
+              echo
+              echo "----- verdict -----"
+              if [ "$STORE_TYPE" = "InheritFromManifest" ] && [ -n "$CONNECTOR_REF" ]; then
+                echo "  PASS -- type preserved as InheritFromManifest (NG-parity outcome)"
+                echo "          AND connectorRef was borrowed from primary (template data intact)."
+              elif [ -z "$CONNECTOR_REF" ]; then
+                echo "  FAIL -- connectorRef empty. Spec-field injection broke."
+              else
+                echo "  FAIL -- store.type leaked as [$STORE_TYPE], expected InheritFromManifest."
+              fi
+
+        # ===================================================================
         # STEP 2 -- LOAD-BEARING. Renders the manifest against whatever
         # values actually made it through conversion + fetch + templating.
         # ===================================================================

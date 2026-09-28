@@ -42,7 +42,7 @@ pipeline:
         - name: download artifact
           id: downloadArtifact
           template:
-            uses: downloadArtifactAction@1.0.1
+            uses: downloadArtifactAction@1.0.2
             with:
               artifact_id: testartifact
               download_path: /tmp/vms-test-artifact/

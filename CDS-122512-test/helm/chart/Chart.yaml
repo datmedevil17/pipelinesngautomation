@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cds122512-steady-hooks
+description: Minimal chart for CDS-122512 SteadyStateCheck hook fixtures
+version: 0.1.0
+appVersion: "1.0"

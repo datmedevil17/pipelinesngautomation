@@ -1,0 +1,47 @@
+# CDS-122512 svc 10 -- Helm mirror of svc 03: PreHook succeeds, PostHook
+# exits non-zero (pipelines stage posthookFails in
+# pipeline-cds122512-helm.yaml).
+# AFTER the fix: helm release actually rolls out (PRE stamp + rollout
+# succeed), then POST fails and the step must be reported FAILED.
+# BEFORE the fix: neither hook runs, step is green.
+service:
+  uses: helm
+  with:
+    manifests:
+      sources:
+        - id: helm_chart
+          uses: helm-chart
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/helm/chart
+            values: []
+    hooks:
+      - identifier: preOk
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-STEADY-HOOK RAN OK (helm)"
+            date -u +%s > /harness/cds122512-helm-preok.stamp
+        order: 1
+      - identifier: postFails
+        type: PostHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "POST-STEADY-HOOK ABOUT TO FAIL -- rollout itself succeeded (helm)"
+            exit 1
+        order: 1

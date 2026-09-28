@@ -1,0 +1,54 @@
+# CDS-122512 svc 01 -- K8s Rolling deploy, one SteadyStateCheck PreHook + one
+# PostHook. Both scripts just log + stamp a timestamp file, so this is the pure
+# "does it run at all, and in the right order relative to the poll" case
+# (pipelines/pipeline-cds122512-k8s.yaml, stage happyPath).
+#
+# BEFORE the fix: `actions: [SteadyStateCheck]` parses fine (the schema
+# already declares STEADY_STATE_CHECK), but neither hook ever runs --
+# UnifiedServiceStep.handleServiceHooksPart falls through to
+# Collections.emptyMap() for this action type. No PRE/POST log lines, no
+# stamp files, deploy just succeeds as if no hooks were configured.
+# AFTER the fix: both hooks run. cds122512-k8s-pre.stamp predates the steady
+# -state poll starting; cds122512-k8s-post.stamp postdates it completing.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/k8s
+            values: []
+    hooks:
+      - identifier: preSteadyCheck
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-STEADY-HOOK RAN"
+            date -u +%s > /harness/cds122512-k8s-pre.stamp
+        order: 1
+      - identifier: postSteadyCheck
+        type: PostHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            test -f /harness/cds122512-k8s-pre.stamp
+            echo "POST-STEADY-HOOK RAN"
+            date -u +%s > /harness/cds122512-k8s-post.stamp
+        order: 1

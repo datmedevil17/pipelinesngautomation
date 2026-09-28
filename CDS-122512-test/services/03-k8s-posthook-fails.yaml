@@ -1,0 +1,51 @@
+# CDS-122512 svc 03 -- PreHook succeeds, PostHook exits non-zero
+# (pipelines stage posthookFails).
+#
+# AFTER the fix: the PRE hook runs and the workload actually reaches steady
+# state (releases roll out normally), then the POST hook runs and fails --
+# the deploy step itself must be reported FAILED even though the underlying
+# rollout succeeded, because a PostHook failure is a step failure.
+# BEFORE the fix: hooks are dropped entirely, so nothing runs and the step is
+# green -- proof that failure semantics for a configured-but-ignored PostHook
+# are silently wrong.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/k8s
+            values: []
+    hooks:
+      - identifier: preOk
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-STEADY-HOOK RAN OK"
+            date -u +%s > /harness/cds122512-k8s-preok.stamp
+        order: 1
+      - identifier: postFails
+        type: PostHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "POST-STEADY-HOOK ABOUT TO FAIL -- rollout itself succeeded"
+            exit 1
+        order: 1

@@ -1,0 +1,46 @@
+# CDS-122512 svc 09 -- Helm mirror of svc 02: PreHook exits non-zero
+# (pipelines stage prehookFails in pipeline-cds122512-helm.yaml).
+# AFTER the fix: helm install/upgrade must never even attempt the steady
+# -state poll; deploy step fails at the PRE hook.
+# BEFORE the fix: hook is dropped, deploy succeeds.
+service:
+  uses: helm
+  with:
+    manifests:
+      sources:
+        - id: helm_chart
+          uses: helm-chart
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/helm/chart
+            values: []
+    hooks:
+      - identifier: preFails
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-STEADY-HOOK ABOUT TO FAIL (helm)"
+            exit 1
+        order: 1
+      - identifier: postNeverRuns
+        type: PostHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "POST-STEADY-HOOK RAN -- THIS MUST NEVER PRINT (helm)"
+            date -u +%s > /harness/cds122512-helm-posthook-after-prefail.stamp
+        order: 1

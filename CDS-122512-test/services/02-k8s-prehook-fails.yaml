@@ -1,0 +1,49 @@
+# CDS-122512 svc 02 -- PreHook exits non-zero (pipelines stage prehookFails).
+#
+# AFTER the fix: the deploy step must fail immediately at the PRE hook, the
+# steady-state poll must never start, and postNeverRuns' stamp file must NOT
+# exist anywhere under /harness.
+# BEFORE the fix: hooks are dropped entirely, so the deploy SUCCEEDS despite a
+# "failing" pre-hook being configured -- itself proof of the bug (a hook that
+# should abort the deploy silently does nothing).
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/k8s
+            values: []
+    hooks:
+      - identifier: preFails
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "PRE-STEADY-HOOK ABOUT TO FAIL"
+            exit 1
+        order: 1
+      - identifier: postNeverRuns
+        type: PostHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "POST-STEADY-HOOK RAN -- THIS MUST NEVER PRINT IF PRE FAILED"
+            date -u +%s > /harness/cds122512-k8s-posthook-after-prefail.stamp
+        order: 1

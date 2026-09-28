@@ -1,0 +1,59 @@
+# CDS-122512 svc 11 -- Helm mirror of svc 04: three PRE SteadyStateCheck
+# hooks, order 1/2/3, the middle one fails (pipelines stage multiHookOrder in
+# pipeline-cds122512-helm.yaml). Same sequential + stop-on-failure proof as
+# the K8s case, run against the helm-plugin's embedded steady-state path
+# instead of a dedicated k8s-steady-check step.
+service:
+  uses: helm
+  with:
+    manifests:
+      sources:
+        - id: helm_chart
+          uses: helm-chart
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/helm/chart
+            values: []
+    hooks:
+      - identifier: hook1First
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "HOOK1 (order 1) RAN (helm)"
+            date -u +%s > /harness/cds122512-helm-hook1.stamp
+        order: 1
+      - identifier: hook2SecondFails
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            test -f /harness/cds122512-helm-hook1.stamp
+            echo "HOOK2 (order 2) RAN -- ABOUT TO FAIL (helm)"
+            date -u +%s > /harness/cds122512-helm-hook2.stamp
+            exit 1
+        order: 2
+      - identifier: hook3ThirdNeverRuns
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "HOOK3 (order 3) RAN -- THIS MUST NEVER PRINT (helm)"
+            date -u +%s > /harness/cds122512-helm-hook3.stamp
+        order: 3

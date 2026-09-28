@@ -1,0 +1,66 @@
+# CDS-122512 svc 04 -- three PRE SteadyStateCheck hooks, order 1/2/3, the
+# middle one fails (pipelines stage multiHookOrder).
+#
+# Proves two things in one service: (a) hooks with the same type+action run
+# strictly in `order`, not declaration order or parallel -- hook1 must
+# complete (stamp written) before hook2 runs; (b) execution stops at the
+# first failure -- hook3 must NEVER run (no stamp file), matching
+# ServiceHookHandler.execute()'s existing NG delegate-side semantics of
+# throwing KubernetesTaskException on the first non-zero exit.
+# BEFORE the fix: none of the three run.
+# AFTER the fix: hook1.stamp exists, hook2 prints its fail line then the step
+# fails, hook3.stamp does NOT exist.
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-122512-test/k8s
+            values: []
+    hooks:
+      - identifier: hook1First
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "HOOK1 (order 1) RAN"
+            date -u +%s > /harness/cds122512-k8s-hook1.stamp
+        order: 1
+      - identifier: hook2SecondFails
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            test -f /harness/cds122512-k8s-hook1.stamp
+            echo "HOOK2 (order 2) RAN -- ABOUT TO FAIL"
+            date -u +%s > /harness/cds122512-k8s-hook2.stamp
+            exit 1
+        order: 2
+      - identifier: hook3ThirdNeverRuns
+        type: PreHook
+        actions:
+          - SteadyStateCheck
+        storeType: inline
+        store:
+          content: |
+            set -eux
+            echo "HOOK3 (order 3) RAN -- THIS MUST NEVER PRINT"
+            date -u +%s > /harness/cds122512-k8s-hook3.stamp
+        order: 3
