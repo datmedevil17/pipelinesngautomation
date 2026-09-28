@@ -1,5 +1,0 @@
-serviceName: serverless-minimal-fixture
-region: us-east-1
-stage: dev
-memorySize: 256
-image: 111122223333.dkr.ecr.us-east-1.amazonaws.com/serverless-minimal-fixture:latest

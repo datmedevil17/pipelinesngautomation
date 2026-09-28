@@ -1,15 +1,15 @@
-service: {{ .Values.serviceName }}
+service: serverless-minimal-fixture
 frameworkVersion: '3.40.0'
 
 provider:
   name: aws
-  region: {{ .Values.region }}
-  stage: {{ .Values.stage }}
-  memorySize: {{ .Values.memorySize }}
+  region: us-east-1
+  stage: dev
+  memorySize: 256
   ecr:
     images:
       appimage:
-        uri: {{ .Values.image }}
+        uri: 111122223333.dkr.ecr.us-east-1.amazonaws.com/serverless-minimal-fixture:latest
 
 functions:
   hello:
