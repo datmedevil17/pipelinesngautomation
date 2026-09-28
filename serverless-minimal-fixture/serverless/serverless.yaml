@@ -9,7 +9,7 @@ provider:
   ecr:
     images:
       appimage:
-        uri: 111122223333.dkr.ecr.us-east-1.amazonaws.com/serverless-minimal-fixture:latest
+        uri: <+artifact.image>
 
 functions:
   hello:
