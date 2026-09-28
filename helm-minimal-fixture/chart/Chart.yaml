@@ -1,0 +1,6 @@
+apiVersion: v2
+name: helm-minimal-fixture
+description: Minimal single-manifest Helm chart for basic connector/manifest-path smoke testing.
+type: application
+version: 0.1.0
+appVersion: "1.0"

@@ -1,0 +1,4 @@
+appName: helm-minimal-fixture
+replicaCount: 1
+image: nginx:1.25
+port: 80
