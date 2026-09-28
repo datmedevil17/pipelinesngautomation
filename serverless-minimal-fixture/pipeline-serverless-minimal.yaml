@@ -30,6 +30,9 @@ pipeline:
             uses: serverlessDeployAction@1.0.2
             with:
               log_level: debug
+              env_vars:
+                - key: NODE_EXTRA_CA_CERTS
+                  value: /tmp/aws-ca/extra-ca.pem
 
       runtime:
         kubernetes:
