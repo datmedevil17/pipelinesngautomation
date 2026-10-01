@@ -1,4 +1,4 @@
 replicaCount: 2
 image: nginx:1.25
-containerPort: 8080
+containerPort: 80
 readinessInitialDelaySeconds: 3
