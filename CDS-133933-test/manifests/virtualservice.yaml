@@ -1,0 +1,25 @@
+# This is the pre-existing manifest-declared VirtualService that CDS-133933
+# is about: when the standalone K8sTrafficRouting step (type: config) runs
+# AFTER this manifest has been applied, with CDS_ISTIO_VS_MERGE_IN_TRAFFIC_ROUTING
+# enabled, the step must MERGE into this resource (keeping hosts/gateways/
+# timeout), not overwrite or ignore it.
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: trafficshift-vs
+  annotations:
+    harness.io/direct-apply: "true"
+spec:
+  hosts:
+    - trafficshift.example.com
+  gateways:
+    - customer-gateway
+  http:
+    - name: route1
+      timeout: 30s
+      retries:
+        attempts: 3
+      route:
+        - destination:
+            host: {{.Values.name}}-svc
+          weight: 100

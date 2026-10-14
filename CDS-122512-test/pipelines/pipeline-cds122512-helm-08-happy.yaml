@@ -1,0 +1,48 @@
+# CDS-122512 -- Helm SteadyStateCheck hooks, case 8: happy path. Helm mirror
+# of k8s case 1. service: services/08-helm-happy-hooks.yaml.
+# Uses helmBasicDeployStep, which composes helmDeployAction (steady-state
+# poll embedded inside it) -> helmTestAction.
+
+pipeline:
+  name: pipeline_cds122512_helm_08_happy
+  identifier: pipeline_cds122512_helm_08_happy
+
+  stages:
+    - name: CDS-122512 helm - happy path hooks
+      id: happyPath
+      service: service_helm_08_happy_hooks
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              ls -la /harness/cds122512-helm-pre.stamp /harness/cds122512-helm-post.stamp 2>/dev/null
+              if [ ! -f /harness/cds122512-helm-pre.stamp ]; then echo "FAIL: no pre stamp"; fail=1; fi
+              if [ ! -f /harness/cds122512-helm-post.stamp ]; then echo "FAIL: no post stamp"; fail=1; fi
+              if [ -f /harness/cds122512-helm-pre.stamp ] && [ -f /harness/cds122512-helm-post.stamp ]; then
+                pre=$(cat /harness/cds122512-helm-pre.stamp)
+                post=$(cat /harness/cds122512-helm-post.stamp)
+                if [ "$pre" -le "$post" ]; then echo "PASS: pre <= post"; else echo "FAIL: pre after post"; fail=1; fi
+              fi
+              exit $fail
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

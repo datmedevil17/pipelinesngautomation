@@ -1,0 +1,32 @@
+# CDS-122512 -- K8s SteadyStateCheck hooks, case 3: PostHook fails.
+# service: services/03-k8s-posthook-fails.yaml
+# BEFORE fix: PASS (bug).
+# AFTER fix: rollout itself succeeds (check /harness/cds122512-k8s-preok.stamp
+# manually -- there's no trailing assert step here since a failed deploy step
+# can skip subsequent steps), but the `deploy` step is reported FAILED because
+# the post-hook failure counts as a step failure.
+# Expected final stage status: FAILED.
+
+pipeline:
+  name: pipeline_cds122512_k8s_03_posthook_fails
+  identifier: pipeline_cds122512_k8s_03_posthook_fails
+
+  stages:
+    - name: CDS-122512 k8s - posthook fails
+      id: posthookFails
+      service: service_k8s_03_posthook_fails
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

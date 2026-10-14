@@ -1,0 +1,43 @@
+# CDS-122512 -- Helm SteadyStateCheck hooks, case 11: multi-hook order. Helm
+# mirror of k8s case 4. service: services/11-helm-multi-hook-order.yaml.
+# Expected: FAILED, hook1+hook2 stamps exist, hook3 stamp absent.
+
+pipeline:
+  name: pipeline_cds122512_helm_11_multi_hook_order
+  identifier: pipeline_cds122512_helm_11_multi_hook_order
+
+  stages:
+    - name: CDS-122512 helm - multi-hook order
+      id: multiHookOrder
+      service: service_helm_11_multi_hook_order
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              for f in hook1 hook2; do
+                if [ -f /harness/cds122512-helm-$f.stamp ]; then echo "PASS: $f ran"; else echo "FAIL: $f did not run"; fail=1; fi
+              done
+              if [ -f /harness/cds122512-helm-hook3.stamp ]; then echo "FAIL: hook3 ran"; fail=1; else echo "PASS: hook3 never ran"; fi
+              exit $fail
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

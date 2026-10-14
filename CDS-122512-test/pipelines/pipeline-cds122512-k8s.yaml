@@ -23,10 +23,10 @@ pipeline:
     # =====================================================================
     - name: CDS-122512 k8s - happy path hooks
       id: happyPath
-      service: <YOUR_SERVICE_ID_01>
+      service: service_kubernetes_steady_state_hooks
       environment:
-        id: <YOUR_ENV_ID>
-        deploy-to: <YOUR_INFRA_ID>
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
       steps:
         - name: recon
           id: recon
@@ -66,8 +66,8 @@ pipeline:
               exit $fail
       runtime:
         kubernetes:
-          namespace: <YOUR_NAMESPACE>
-          connector: <YOUR_K8S_CONNECTOR>
+          namespace: default
+          connector: connector_K8sCluster_local
           automount-service-token: true
           pull: always
       timeout: 15m
@@ -79,10 +79,10 @@ pipeline:
     # =====================================================================
     - name: CDS-122512 k8s - prehook fails
       id: prehookFails
-      service: <YOUR_SERVICE_ID_02>
+      service: service_k8s_02_prehook_fails
       environment:
-        id: <YOUR_ENV_ID>
-        deploy-to: <YOUR_INFRA_ID>
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
       steps:
         - name: Rolling Deploy
           id: deploy
@@ -110,8 +110,8 @@ pipeline:
               type: MarkAsSuccess
       runtime:
         kubernetes:
-          namespace: <YOUR_NAMESPACE>
-          connector: <YOUR_K8S_CONNECTOR>
+          namespace: default
+          connector: connector_K8sCluster_local
           automount-service-token: true
           pull: always
       timeout: 15m
@@ -123,10 +123,10 @@ pipeline:
     # =====================================================================
     - name: CDS-122512 k8s - posthook fails
       id: posthookFails
-      service: <YOUR_SERVICE_ID_03>
+      service: service_k8s_03_posthook_fails
       environment:
-        id: <YOUR_ENV_ID>
-        deploy-to: <YOUR_INFRA_ID>
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
       steps:
         - name: Rolling Deploy
           id: deploy
@@ -139,8 +139,8 @@ pipeline:
               type: MarkAsSuccess
       runtime:
         kubernetes:
-          namespace: <YOUR_NAMESPACE>
-          connector: <YOUR_K8S_CONNECTOR>
+          namespace: default
+          connector: connector_K8sCluster_local
           automount-service-token: true
           pull: always
       timeout: 15m
@@ -158,10 +158,10 @@ pipeline:
     # =====================================================================
     - name: CDS-122512 k8s - multi-hook order
       id: multiHookOrder
-      service: <YOUR_SERVICE_ID_04>
+      service: service_k8s_04_multi_hook_order
       environment:
-        id: <YOUR_ENV_ID>
-        deploy-to: <YOUR_INFRA_ID>
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
       steps:
         - name: Rolling Deploy
           id: deploy
@@ -190,8 +190,8 @@ pipeline:
               type: MarkAsSuccess
       runtime:
         kubernetes:
-          namespace: <YOUR_NAMESPACE>
-          connector: <YOUR_K8S_CONNECTOR>
+          namespace: default
+          connector: connector_K8sCluster_local
           automount-service-token: true
           pull: always
       timeout: 15m
@@ -203,10 +203,10 @@ pipeline:
     # =====================================================================
     - name: CDS-122512 k8s - no hooks regression
       id: noHooksRegression
-      service: <YOUR_SERVICE_ID_05>
+      service: service_k8s_05_no_hooks
       environment:
-        id: <YOUR_ENV_ID>
-        deploy-to: <YOUR_INFRA_ID>
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
       steps:
         - name: Rolling Deploy
           id: deploy
@@ -214,8 +214,8 @@ pipeline:
             uses: k8sRollingDeployStep
       runtime:
         kubernetes:
-          namespace: <YOUR_NAMESPACE>
-          connector: <YOUR_K8S_CONNECTOR>
+          namespace: default
+          connector: connector_K8sCluster_local
           automount-service-token: true
           pull: always
       timeout: 15m
@@ -228,10 +228,10 @@ pipeline:
     # =====================================================================
     - name: CDS-122512 k8s - long-running poll timing
       id: longRunningTiming
-      service: <YOUR_SERVICE_ID_07>
+      service: service_k8s_07_long_running_hooks
       environment:
-        id: <YOUR_ENV_ID>
-        deploy-to: <YOUR_INFRA_ID>
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
       steps:
         - name: Rolling Deploy
           id: deploy
@@ -264,8 +264,8 @@ pipeline:
               exit $fail
       runtime:
         kubernetes:
-          namespace: <YOUR_NAMESPACE>
-          connector: <YOUR_K8S_CONNECTOR>
+          namespace: default
+          connector: connector_K8sCluster_local
           automount-service-token: true
           pull: always
       timeout: 15m

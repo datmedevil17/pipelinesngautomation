@@ -1,0 +1,94 @@
+# Repro A for CDS-133933: standalone K8sTrafficRouting step, type=config,
+# Istio provider, NO hosts given in the step. Manifest (ng-service.yaml)
+# already deployed a VirtualService named trafficshift-vs with
+# hosts/gateways/http.timeout/retries set.
+#
+# EXPECTED ON UNPATCHED BUILD (bug reproduced): the TrafficRouting step FAILS
+# with "Hosts field is invalid or empty" -- because prepareForTrafficRouting
+# never checks isMergeExistingVS() and always calls createTrafficRoutingResources
+# (which requires hosts since it builds a brand-new VS), instead of calling
+# mergeWithExistingManifest (which would reuse the manifest's hosts).
+#
+# EXPECTED AFTER FIX: step succeeds, VS keeps hosts: trafficshift.example.com
+# from the manifest, gateways: customer-gateway preserved, http routes merged
+# with the step's route1 destinations.
+#
+# PREREQS: enable account-level FF CDS_ISTIO_VS_MERGE_IN_TRAFFIC_ROUTING.
+# Fill in every <YOUR_...> placeholder before creating.
+pipeline:
+  name: CDS-133933 repro - no hosts
+  identifier: cds133933_repro_no_hosts
+  projectIdentifier: <YOUR_PROJECT>
+  orgIdentifier: <YOUR_ORG>
+  stages:
+    - stage:
+        name: stage-1
+        identifier: stage1
+        type: Deployment
+        spec:
+          deploymentType: Kubernetes
+          service:
+            serviceRef: cds133933svc
+          environment:
+            environmentRef: <YOUR_ENV_ID>
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: <YOUR_INFRA_ID>
+          execution:
+            steps:
+              - step:
+                  name: Rolling Deploy
+                  identifier: rollingDeploy
+                  type: K8sRollingDeploy
+                  timeout: 10m
+                  spec:
+                    skipDryRun: false
+                    pruningEnabled: false
+              - step:
+                  type: K8sTrafficRouting
+                  name: trConfigNoHosts
+                  identifier: trConfigNoHosts
+                  spec:
+                    type: config
+                    trafficRouting:
+                      spec:
+                        routes:
+                          - route:
+                              type: http
+                              name: route1
+                              destinations:
+                                - destination:
+                                    host: cds133933-svc
+                                    weight: 100
+                        name: trafficshift-vs
+                      provider: istio
+                  timeout: 10m
+              - step:
+                  type: ShellScript
+                  name: dumpVS
+                  identifier: dumpVS
+                  spec:
+                    shell: Bash
+                    executionTarget: {}
+                    source:
+                      type: Inline
+                      spec:
+                        script: |-
+                          export KUBECONFIG=${HARNESS_KUBE_CONFIG_PATH}
+                          kubectl get virtualservice/trafficshift-vs -n <+infra.namespace> -o yaml
+                    environmentVariables: []
+                    outputVariables: []
+                  timeout: 5m
+            rollbackSteps:
+              - step:
+                  type: K8sRollingRollback
+                  name: RollbackRolling
+                  identifier: RollbackRolling
+                  spec: {}
+                  timeout: 10m
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: StageRollback

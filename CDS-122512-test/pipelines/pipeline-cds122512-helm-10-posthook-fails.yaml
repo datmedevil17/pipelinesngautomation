@@ -1,0 +1,28 @@
+# CDS-122512 -- Helm SteadyStateCheck hooks, case 10: PostHook fails. Helm
+# mirror of k8s case 3. service: services/10-helm-posthook-fails.yaml.
+# Expected: release actually rolls out (preok stamp exists -- check manually,
+# no trailing assert step), then POST fails and the step is reported FAILED.
+
+pipeline:
+  name: pipeline_cds122512_helm_10_posthook_fails
+  identifier: pipeline_cds122512_helm_10_posthook_fails
+
+  stages:
+    - name: CDS-122512 helm - posthook fails
+      id: posthookFails
+      service: service_helm_10_posthook_fails
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

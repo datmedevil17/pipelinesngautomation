@@ -1,0 +1,59 @@
+# CDS-122512 -- K8s SteadyStateCheck hooks, case 1: happy path.
+# service: services/01-k8s-happy-hooks.yaml
+# BEFORE fix: PASS, no stamp files. AFTER fix: PASS, both stamp files, pre <= post.
+
+pipeline:
+  name: pipeline_cds122512_k8s_01_happy
+  identifier: pipeline_cds122512_k8s_01_happy
+
+  stages:
+    - name: CDS-122512 k8s - happy path hooks
+      id: happyPath
+      service: service_kubernetes_steady_state_hooks
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: recon
+          id: recon
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "===== before deploy: /harness stamps ====="
+              ls -la /harness/cds122512-k8s-*.stamp 2>/dev/null || echo "  none yet - expected"
+
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              echo "===== stamps ====="
+              ls -la /harness/cds122512-k8s-pre.stamp /harness/cds122512-k8s-post.stamp 2>/dev/null
+              if [ ! -f /harness/cds122512-k8s-pre.stamp ]; then echo "FAIL: no pre stamp"; fail=1; fi
+              if [ ! -f /harness/cds122512-k8s-post.stamp ]; then echo "FAIL: no post stamp"; fail=1; fi
+              if [ -f /harness/cds122512-k8s-pre.stamp ] && [ -f /harness/cds122512-k8s-post.stamp ]; then
+                pre=$(cat /harness/cds122512-k8s-pre.stamp)
+                post=$(cat /harness/cds122512-k8s-post.stamp)
+                if [ "$pre" -le "$post" ]; then echo "PASS: pre ($pre) <= post ($post)"; else echo "FAIL: pre after post"; fail=1; fi
+              fi
+              exit $fail
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

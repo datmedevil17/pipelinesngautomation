@@ -1,0 +1,46 @@
+# CDS-122512 -- K8s SteadyStateCheck hooks, case 4: multi-hook order + stop-on-failure.
+# service: services/04-k8s-multi-hook-order.yaml
+# BEFORE fix: PASS, no stamps.
+# AFTER fix: hook1.stamp exists, hook2.stamp exists (it wrote its stamp then
+# failed), hook3.stamp does NOT exist -- chain stops on first failing hook.
+# Expected final stage status: FAILED (deploy step fails when hook2 fails).
+
+pipeline:
+  name: pipeline_cds122512_k8s_04_multi_hook_order
+  identifier: pipeline_cds122512_k8s_04_multi_hook_order
+
+  stages:
+    - name: CDS-122512 k8s - multi-hook order
+      id: multiHookOrder
+      service: service_k8s_04_multi_hook_order
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              fail=0
+              for f in hook1 hook2; do
+                if [ -f /harness/cds122512-k8s-$f.stamp ]; then echo "PASS: $f ran"; else echo "FAIL: $f did not run"; fail=1; fi
+              done
+              if [ -f /harness/cds122512-k8s-hook3.stamp ]; then echo "FAIL: hook3 ran -- chain did not stop on hook2 failure"; fail=1; else echo "PASS: hook3 never ran"; fi
+              exit $fail
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

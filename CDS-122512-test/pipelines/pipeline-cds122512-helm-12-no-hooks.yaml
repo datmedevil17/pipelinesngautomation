@@ -1,0 +1,27 @@
+# CDS-122512 -- Helm SteadyStateCheck hooks, case 12: no hooks configured.
+# Helm mirror of k8s case 5, pure regression control. service:
+# services/12-helm-no-hooks.yaml. Expected: PASS, identical to pre-fix behavior.
+
+pipeline:
+  name: pipeline_cds122512_helm_12_no_hooks
+  identifier: pipeline_cds122512_helm_12_no_hooks
+
+  stages:
+    - name: CDS-122512 helm - no hooks regression
+      id: noHooksRegression
+      service: service_helm_12_no_hooks
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

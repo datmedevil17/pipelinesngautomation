@@ -1,0 +1,46 @@
+# CDS-122512 -- K8s SteadyStateCheck hooks, case 2: PreHook fails.
+# service: services/02-k8s-prehook-fails.yaml
+# BEFORE fix: PASS (bug -- hook silently ignored).
+# AFTER fix: deploy step FAILS, and the post-hook must never run --
+# /harness/cds122512-k8s-posthook-after-prefail.stamp must NOT exist.
+# Expected final stage status: FAILED (no MarkAsSuccess override -- this is
+# a standalone pipeline, so we want to see the real failure, not a forced pass).
+
+pipeline:
+  name: pipeline_cds122512_k8s_02_prehook_fails
+  identifier: pipeline_cds122512_k8s_02_prehook_fails
+
+  stages:
+    - name: CDS-122512 k8s - prehook fails
+      id: prehookFails
+      service: service_k8s_02_prehook_fails
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              echo "This step only runs if deploy was NOT failure-strategy-aborted."
+              echo "===== stamps (must be absent) ====="
+              ls -la /harness/cds122512-k8s-posthook-after-prefail.stamp 2>/dev/null && \
+                { echo "FAIL: post-after-prefail stamp exists -- pre-hook failure did not stop the chain"; exit 1; } || \
+                echo "PASS: no post-after-prefail stamp"
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

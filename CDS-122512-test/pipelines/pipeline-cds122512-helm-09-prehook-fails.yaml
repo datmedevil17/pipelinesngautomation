@@ -1,0 +1,41 @@
+# CDS-122512 -- Helm SteadyStateCheck hooks, case 9: PreHook fails. Helm
+# mirror of k8s case 2. service: services/09-helm-prehook-fails.yaml.
+# Expected final stage status: FAILED (standalone pipeline, no MarkAsSuccess
+# override -- we want to see the real failure).
+
+pipeline:
+  name: pipeline_cds122512_helm_09_prehook_fails
+  identifier: pipeline_cds122512_helm_09_prehook_fails
+
+  stages:
+    - name: CDS-122512 helm - prehook fails
+      id: prehookFails
+      service: service_helm_09_prehook_fails
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: Helm Deploy
+          id: deploy
+          template:
+            uses: helmBasicDeployStep
+
+        - name: assert
+          id: assert
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              set -u
+              ls -la /harness/cds122512-helm-posthook-after-prefail.stamp 2>/dev/null && \
+                { echo "FAIL: post-after-prefail stamp exists"; exit 1; } || \
+                echo "PASS: no post-after-prefail stamp"
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

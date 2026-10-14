@@ -1,0 +1,27 @@
+# CDS-122512 -- K8s SteadyStateCheck hooks, case 5: no hooks configured.
+# service: services/05-k8s-no-hooks.yaml
+# Pure regression control -- BEFORE and AFTER fix should be identical: PASS.
+
+pipeline:
+  name: pipeline_cds122512_k8s_05_no_hooks
+  identifier: pipeline_cds122512_k8s_05_no_hooks
+
+  stages:
+    - name: CDS-122512 k8s - no hooks regression
+      id: noHooksRegression
+      service: service_k8s_05_no_hooks
+      environment:
+        id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: Rolling Deploy
+          id: deploy
+          template:
+            uses: k8sRollingDeployStep
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m
