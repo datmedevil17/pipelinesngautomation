@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tsrefkqvqf-trafficshift-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tsrefkqvqf-trafficshift
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: tsrefkqvqf-trafficshift
+        version: v2
+    spec:
+      containers:
+        - name: trafficshift
+          image: hashicorp/http-echo:latest
+          args:
+            - -text=v2
+            - -listen=:5000
+          ports:
+            - containerPort: 5000
