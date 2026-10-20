@@ -1,0 +1,32 @@
+pipeline:
+  stages:
+    - name: R10c MD Max Concurrency
+      id: R10c_MD_Max_Concurrency
+      steps:
+        - name: Deploy
+          run:
+            script: sleep 30 && echo deployed
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        parallel: true
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - INVALID_SERVICE_ID
+          - service_kubernetes_bg_traffic_shift
+          - service_kubernetes_steady_state_hooks
+        type: kubernetes
+      multi-deployment:
+        on-failure: run-all
+        max-concurrency: 2
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

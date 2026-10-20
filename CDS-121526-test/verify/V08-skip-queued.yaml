@@ -1,0 +1,30 @@
+pipeline:
+  stages:
+    - name: V08-skip-queued
+      id: ID_V08_skip_queued
+      steps:
+        - name: Deploy
+          run:
+            script: echo deployed
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - INVALID_SERVICE_ID
+          - service_kubernetes_bg_traffic_shift
+        type: kubernetes
+      multi-deployment:
+        on-failure: skip-queued
+        max-concurrency: 1
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

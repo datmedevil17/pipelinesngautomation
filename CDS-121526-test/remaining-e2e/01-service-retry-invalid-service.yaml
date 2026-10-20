@@ -1,0 +1,31 @@
+pipeline:
+  stages:
+    - name: R01 Service Retry
+      id: R01_Service_Retry
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors: [unknown]
+            action:
+              retry:
+                attempts: 2
+                interval: 10s
+                failure-action: fail
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

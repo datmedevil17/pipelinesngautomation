@@ -1,0 +1,35 @@
+pipeline:
+  stages:
+    - name: Service Onfailure Narrow Scope
+      id: Service_Onfailure_Narrow_Scope
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - approval-rejection
+              - timeout
+            action: fail
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+# "service not found" classifies as unknown/APPLICATION_FAILURE, which is NOT
+# in this errors list. Expect the strategy to NOT trigger -- the Service node
+# fails straight through with the raw "Could not find service with id..."
+# error (same end state as `fail` would have produced, so this isn't
+# distinguishable by status alone -- check the error message/logs on the
+# Service node itself to confirm it's the raw lookup error, not a
+# strategy-driven failure).
+#
+# NOTE: `action: manual-intervention` was tried first but is intentionally
+# disallowed at service scope (see pipeline-service-onfailure-unknown-wildcard.yaml).

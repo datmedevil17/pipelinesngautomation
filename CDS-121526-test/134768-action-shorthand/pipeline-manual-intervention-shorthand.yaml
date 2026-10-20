@@ -1,0 +1,24 @@
+pipeline:
+  stages:
+    - name: Manual Intervention Shorthand
+      id: Manual_Intervention_Shorthand
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: manual-intervention
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true

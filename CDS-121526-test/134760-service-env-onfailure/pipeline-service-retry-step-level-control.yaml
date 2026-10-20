@@ -1,0 +1,39 @@
+pipeline:
+  stages:
+    - name: Service Retry Step Level Control
+      id: Service_Retry_Step_Level_Control
+      steps:
+        - name: Deploy
+          run:
+            script: exit 1
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_c0ae
+        type: kubernetes
+        on-failure:
+          - errors:
+              - all
+            action:
+              retry:
+                attempts: 2
+                interval: 10s
+                failure-action: fail
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+# Control case for pipeline-service-overrides-stage-same-error.yaml. Same
+# service-scope retry->fail action, but the failure now originates from a
+# STEP (script `exit 1` on a VALID service) instead of entity resolution on
+# an invalid service ID. If retry wiring works at step level, expect the
+# Deploy step to show 2 distinct attempts ~10s apart (step duration >=20s,
+# not 0s) before the stage settles into Failed. If this ALSO shows 0s
+# duration / no retry attempts, the retry adviser isn't being attached at
+# all for service-scope strategies, not just for entity-fetch failures. If
+# this one retries correctly but the invalid-service-ID case did not, that
+# isolates the gap to failures occurring during node
+# initialization/entity-resolution bypassing the adviser.

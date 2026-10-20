@@ -1,0 +1,26 @@
+pipeline:
+  stages:
+    - name: R09b Deferred Service Type
+      id: R09b_Deferred_Service_Type
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - INVALID_SERVICE_ID
+        on-failure:
+          - errors: [unknown]
+            action: fail
+      environment:
+        items:
+          - id: environment_env_2a02
+            all-infra: true

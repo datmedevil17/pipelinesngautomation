@@ -1,0 +1,30 @@
+pipeline:
+  stages:
+    - name: Multi Deployment Max Concurrency
+      id: Multi_Deployment_Max_Concurrency
+      steps:
+        - name: Deploy
+          run:
+            script: sleep 30 && echo "deployed"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: true
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - service_kubernetes_bg_traffic_shift
+          - service_kubernetes_update_release_k8s_traffic
+          - service_kubernetes_steady_state_hooks
+          - service_kubernetes_inherited_manifest
+        type: kubernetes
+      multi-deployment:
+        on-failure: run-all
+        max-concurrency: 2
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+# The 30s sleep gives a wide enough window to check the execution graph
+# mid-run. Expect at most 2 of the 5 service deployments in `Running` state
+# at the same instant, never 3+.

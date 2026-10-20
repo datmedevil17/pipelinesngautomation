@@ -1,0 +1,28 @@
+pipeline:
+  stages:
+    - name: R-service-ignore
+      id: ID_R_service_ignore
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors: [unknown]
+            action:
+              ignore: {}
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

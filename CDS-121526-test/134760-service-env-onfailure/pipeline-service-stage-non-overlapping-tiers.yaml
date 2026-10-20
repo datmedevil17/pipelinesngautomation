@@ -1,0 +1,36 @@
+pipeline:
+  stages:
+    - name: Service Stage Non Overlapping Tiers
+      id: Service_Stage_Non_Overlapping_Tiers
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      on-failure:
+        - errors:
+            - authentication
+          action: fail
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: abort
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+# Stage on-failure only lists `authentication`; service on-failure only
+# lists `unknown`. The invalid service ID produces a generic not-found
+# failure classified as `unknown`, which only the service-level entry
+# catches -- so this run must end "Aborted" (service `action: abort`), NOT
+# "Failed". If it ends "Failed" instead, something is routing through the
+# stage tier's `fail` action despite the error type not matching
+# `authentication`, which would mean the two tiers aren't being
+# evaluated independently/non-overlapping as expected.

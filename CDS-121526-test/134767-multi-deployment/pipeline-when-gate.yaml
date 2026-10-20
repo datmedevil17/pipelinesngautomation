@@ -1,0 +1,29 @@
+pipeline:
+  stages:
+    - name: Multi Deployment When Gate
+      id: Multi_Deployment_When_Gate
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_91ad
+          - service_kubernetes_378e
+        type: kubernetes
+      multi-deployment:
+        on-failure: run-all
+        when: <+input>
+        max-concurrency: 2
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+# Run once with the `when` runtime input set to `false`:
+#   expect multi-deployment skipped entirely, no child executions created.
+# Run once with it set to `true`:
+#   expect normal execution across both services.

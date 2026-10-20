@@ -1,0 +1,25 @@
+pipeline:
+  stages:
+    - name: R11 Regression Allenv Parallel
+      id: R11_Regression_Allenv_Parallel
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        parallel: true
+        items: <+input>
+        type: kubernetes
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true

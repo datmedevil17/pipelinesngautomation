@@ -1,0 +1,28 @@
+pipeline:
+  stages:
+    - name: A-env-fail
+      id: ID_A_env_fail
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+      environment:
+        items:
+          - id: INVALID_ENV_ID
+            deploy-to: infrastructure_kubernetes_5a5e
+        on-failure:
+          - errors: [unknown]
+            action:
+              fail: {}

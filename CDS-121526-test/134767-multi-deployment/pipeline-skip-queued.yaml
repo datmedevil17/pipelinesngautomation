@@ -1,0 +1,25 @@
+pipeline:
+  stages:
+    - name: Multi Deployment Skip Queued
+      id: Multi_Deployment_Skip_Queued
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_0b82
+          - INTENTIONALLY_INVALID_SERVICE_ID
+          - service_kubernetes_c0ae
+        type: kubernetes
+      multi-deployment:
+        on-failure: skip-queued
+        max-concurrency: 1
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true

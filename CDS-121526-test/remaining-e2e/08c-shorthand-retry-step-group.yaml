@@ -1,0 +1,27 @@
+pipeline:
+  stages:
+    - name: R08c Shorthand Retry Step Group
+      id: R08c_Shorthand_Retry_Step_Group
+      steps:
+        - name: Deploy
+          run:
+            script: exit 1
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      on-failure:
+        - errors: [all]
+          action: retry-step-group
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

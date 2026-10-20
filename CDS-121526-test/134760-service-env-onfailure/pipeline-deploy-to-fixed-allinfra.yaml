@@ -1,0 +1,29 @@
+pipeline:
+  stages:
+    - name: Deploy To Fixed All Infra
+      id: Deploy_To_Fixed_All_Infra
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_58f4
+        type: kubernetes
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+          - id: environment_env_33fe
+            all-infra: true
+# Regression test for the earlier plan-creation blocker: two sibling
+# environment items each had `deploy-to: <+input>`, which the backend
+# plan-creator can't collapse into one array ("Runtime input [<+input>] is
+# not supported as an individual element of the [deploy-to] array"). This
+# version has NO `deploy-to` field at all, relying on `all-infra: true`
+# alone. Expect plan creation to succeed and both environments to deploy
+# to all their infra without prompting.

@@ -1,0 +1,30 @@
+pipeline:
+  stages:
+    - name: R06 Multi Service Sequential
+      id: R06_Multi_Service_Sequential
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - INVALID_SERVICE_ID
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+        on-failure:
+          - errors: [unknown]
+            action: fail
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

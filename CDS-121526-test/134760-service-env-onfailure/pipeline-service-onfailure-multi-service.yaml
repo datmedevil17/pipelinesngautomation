@@ -1,0 +1,36 @@
+pipeline:
+  stages:
+    - name: Service Onfailure Multi Service
+      id: Service_Onfailure_Multi_Service
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: true
+        items:
+          - service_kubernetes_58f4
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: fail
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+# Genuinely multi-service: two real matrix children, not the single-item/bare-string
+# shape that CDS-134768's other service-side bug covered. Expect two independent
+# Service matrix children:
+#   - service_kubernetes_58f4            -> deploys normally, ends Succeeded.
+#   - INTENTIONALLY_INVALID_SERVICE_ID   -> "service not found" classifies as
+#     unknown/APPLICATION_FAILURE, which IS in this errors list, so `fail`
+#     (mark-as-failure) fires on just that child -> ends Failed, not Aborted.
+# The stage's overall status should reflect the failed child, but the good child's
+# matrix entry must show Succeeded independently -- proving the adviser is attached
+# per-service-matrix-child and a failure in one sibling doesn't retroactively alter
+# or get suppressed by the other.

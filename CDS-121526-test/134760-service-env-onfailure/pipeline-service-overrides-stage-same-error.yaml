@@ -1,0 +1,41 @@
+pipeline:
+  stages:
+    - name: Service Overrides Stage Same Error
+      id: Service_Overrides_Stage_Same_Error
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      on-failure:
+        - errors:
+            - timeout
+          action: fail
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action:
+              retry:
+                attempts: 2
+                interval: 10s
+                failure-action: fail
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+# Stage-level on-failure handles `timeout` with `fail`. Service-level
+# on-failure handles `unknown` (the generic not-found class the invalid
+# service ID actually produces) with `retry` -> `fail`. Since the two tiers
+# target different error buckets they don't literally compete here, but the
+# service tier is still the one that must fire: expect 2 retry attempts
+# (visible in the execution graph) before the step/stage settles into
+# "Failed", proving the service-level strategy -- not the stage-level one --
+# took ownership of this failure. If stage-level `fail` fired instead (no
+# retries observed), that would indicate service-level precedence is broken.

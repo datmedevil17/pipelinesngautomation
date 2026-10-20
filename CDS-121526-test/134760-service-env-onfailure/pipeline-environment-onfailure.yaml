@@ -1,0 +1,28 @@
+pipeline:
+  stages:
+    - name: Environment Onfailure
+      id: Environment_Onfailure
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_58f4
+        type: kubernetes
+      environment:
+        parallel: false
+        on-failure:
+          - errors:
+              - all
+            action: pipeline-rollback
+        items:
+          - id: INTENTIONALLY_INVALID_ENVIRONMENT_ID
+            all-infra: true
+# Environment-level (not service-level) on-failure, scoped `errors: [all]`.
+# Expect a pipeline-rollback to trigger off the bad-environment failure --
+# proves the environment side of CDS-134760 independently of the service
+# side tested in this same folder's other two files.

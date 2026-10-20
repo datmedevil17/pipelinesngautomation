@@ -1,0 +1,42 @@
+pipeline:
+  stages:
+    - name: Service Onfailure Multi Service Sequential
+      id: Service_Onfailure_Multi_Service_Sequential
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_58f4
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: fail
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+# Diagnostic variant of pipeline-service-onfailure-multi-service.yaml: only change is
+# service.parallel: true -> false. Isolates whether the recurring "network <ID> not
+# found" container-networking error on the good child's Infrastructure step (seen in
+# runs #19, #22, #23) is a concurrency race between matrix children's steps hitting the
+# local delegate's docker network lifecycle at the same instant, vs. something else.
+#
+# Expect, run sequentially:
+#   - service_kubernetes_58f4            -> Initialize/Service/Infrastructure/Deploy all
+#     run one at a time, nothing else contending for the delegate concurrently -> ends
+#     Succeeded cleanly, no docker networking error.
+#   - INTENTIONALLY_INVALID_SERVICE_ID   -> starts only after the first child fully
+#     finishes; Service step fails as before (unknown/APPLICATION_FAILURE), `fail`
+#     action fires -> ends Failed, not Aborted; downstream steps Skipped.
+#
+# If the good child now succeeds cleanly where it didn't in the parallel version, that
+# confirms the docker networking error is a parallel-matrix-child concurrency race on
+# this local setup, not a defect in the on-failure/deferred-resolution code under test.

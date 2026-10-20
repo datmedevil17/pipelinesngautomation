@@ -1,0 +1,34 @@
+pipeline:
+  stages:
+    - name: Service Disallowed Action Rejected
+      id: Service_Disallowed_Action_Rejected
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: stage-rollback
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+# `stage-rollback` is NOT in UnifiedFailureStrategyHelperV1's
+# ALLOWED_ACTIONS_FOR_SERVICE ([ABORT, PIPELINE_ROLLBACK, MARK_AS_FAILURE,
+# RETRY]). Expect this pipeline to fail at PLAN-CREATION time with an
+# InvalidRequestException surfaced to the user (visible as an immediate
+# "Failed to start execution" / plan-creation error, not a running
+# execution that later fails) -- confirming V1 rejects disallowed actions
+# outright instead of silently downgrading to MarkAsFailure the way NG v0
+# does for some callers. Swap `action: stage-rollback` for `action:
+# manual-intervention` to exercise the same rejection via the other
+# disallowed action.

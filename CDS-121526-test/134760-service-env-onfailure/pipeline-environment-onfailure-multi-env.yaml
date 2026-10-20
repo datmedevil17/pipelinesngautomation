@@ -1,0 +1,38 @@
+pipeline:
+  stages:
+    - name: Environment Onfailure Multi Env
+      id: Environment_Onfailure_Multi_Env
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_58f4
+        type: kubernetes
+      environment:
+        parallel: true
+        on-failure:
+          - errors:
+              - all
+            action: pipeline-rollback
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+          - id: INTENTIONALLY_INVALID_ENVIRONMENT_ID
+            all-infra: true
+# Genuinely multi-environment: two real matrix children (each itself expanded via
+# `all-infra: true`, exercising the same deferred-resolution path verified in
+# pipeline-environment-onfailure.yaml), not the single-item shape that fixture used.
+# Expect two independent Infra matrix children:
+#   - environment_env_2a02                    -> resolves its infra list normally,
+#     deploys, ends Succeeded.
+#   - INTENTIONALLY_INVALID_ENVIRONMENT_ID     -> deferred "No infrastructure found
+#     in environment [...]" surfaces at this child's Infra node, triggers
+#     pipeline-rollback on just that child.
+# The good environment's matrix entry must complete independently of the bad one's
+# rollback -- proving the environment.on-failure adviser and the deferred-failure
+# sentinel are scoped per-environment-matrix-child, not to the whole stage.

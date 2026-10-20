@@ -1,0 +1,168 @@
+pipeline:
+  stages:
+    - name: Abort Shorthand
+      id: Abort_Shorthand
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: abort
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+    - name: Ignore Shorthand
+      id: Ignore_Shorthand
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: ignore
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+    - name: Success Shorthand
+      id: Success_Shorthand
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: success
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+    - name: Stage Rollback Shorthand
+      id: Stage_Rollback_Shorthand
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      rollback:
+        - name: Rollback
+          run:
+            script: echo "rolling back"
+          id: Rollback
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: stage-rollback
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+    - name: Pipeline Rollback Shorthand
+      id: Pipeline_Rollback_Shorthand
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: pipeline-rollback
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+    - name: Fail Shorthand
+      id: Fail_Shorthand
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: fail
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+    - name: Proceed With Default Shorthand
+      id: Proceed_With_Default_Shorthand
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: proceed-with-default
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+# One stage per pre-existing action, each as bare-string shorthand.
+# Run each stage individually (or all together) and confirm every action
+# still behaves exactly as it did before the shorthand parity change:
+# abort -> execution aborts; ignore -> treated as success and continues;
+# success -> marked successful; stage-rollback -> stage's rollback steps run;
+# pipeline-rollback -> whole pipeline rolls back; fail -> marked failed;
+# proceed-with-default -> step/node proceeds with its default output.

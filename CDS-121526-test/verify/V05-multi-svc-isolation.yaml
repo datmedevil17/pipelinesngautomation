@@ -1,0 +1,31 @@
+pipeline:
+  stages:
+    - name: V05-multi-svc-isolation
+      id: ID_V05_multi_svc_isolation
+      steps:
+        - name: Deploy
+          run:
+            script: echo deployed
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        parallel: true
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors: [unknown]
+            action:
+              fail: {}
+
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

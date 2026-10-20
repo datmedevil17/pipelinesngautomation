@@ -1,0 +1,32 @@
+pipeline:
+  stages:
+    - name: V06-multi-env-isolation
+      id: ID_V06_multi_env_isolation
+      steps:
+        - name: Deploy
+          run:
+            script: echo deployed
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+
+      environment:
+        parallel: true
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+          - id: INVALID_ENV_ID
+            deploy-to: infrastructure_kubernetes_5a5e
+        on-failure:
+          - errors: [unknown]
+            action:
+              fail: {}

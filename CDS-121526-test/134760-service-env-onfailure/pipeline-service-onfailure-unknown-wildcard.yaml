@@ -1,0 +1,38 @@
+pipeline:
+  stages:
+    - name: Service Onfailure Unknown Wildcard
+      id: Service_Onfailure_Unknown_Wildcard
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: fail
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true
+# Same setup as pipeline-service-onfailure-narrow-scope.yaml, but errors
+# includes `unknown`. Expect the strategy TO trigger this time -- the Service
+# node (and stage) end in status "Failed", not "Aborted", proving the
+# configured action actually ran instead of falling through to the engine's
+# default unhandled-failure path (which also ends the node, but as Aborted).
+#
+# NOTE: `action: manual-intervention` was tried first but is intentionally
+# disallowed at service scope -- UnifiedFailureStrategyHelperV1 mirrors NG
+# v0's ServiceFailureStrategyHelper.ALLOWED_ACTIONS_FOR_SERVICE exactly
+# ([ABORT, PIPELINE_ROLLBACK, MARK_AS_FAILURE, RETRY]), so manual-intervention
+# has never been valid here, v0 or v1. `fail` (mark-as-failure) is used here
+# instead of `abort` because it is unambiguous: default/unhandled failures in
+# this engine already surface as Aborted, so Aborted alone can't prove the
+# strategy fired, but Failed can only come from this configured action.

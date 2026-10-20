@@ -1,0 +1,24 @@
+pipeline:
+  stages:
+    - name: Retry Shorthand
+      id: Retry_Shorthand
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action: retry
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            all-infra: true

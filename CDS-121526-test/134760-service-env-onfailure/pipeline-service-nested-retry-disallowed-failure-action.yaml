@@ -1,0 +1,37 @@
+pipeline:
+  stages:
+    - name: Service Nested Retry Disallowed Failure Action
+      id: Service_Nested_Retry_Disallowed_Failure_Action
+      steps:
+        - name: Deploy
+          run:
+            script: echo "deploying"
+          id: Deploy
+      runtime: cloud
+      service:
+        parallel: false
+        items:
+          - INTENTIONALLY_INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors:
+              - unknown
+            action:
+              retry:
+                attempts: 2
+                interval: 10s
+                failure-action: stage-rollback
+      environment:
+        parallel: false
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+# The outer action (`retry`) is allowed at service scope, but its nested
+# `retry.failure-action` (`stage-rollback`, what runs once retries are
+# exhausted) is NOT in ALLOWED_ACTIONS_FOR_SERVICE. Validation must recurse
+# into the nested action, so this must still fail at PLAN-CREATION time with
+# an InvalidRequestException -- same as a top-level disallowed action would
+# -- NOT execute, retry twice, and then silently fall through. Swap
+# `failure-action: stage-rollback` for an allowed value (e.g. `fail`) to get
+# a positive nested-retry-validation control case that should plan and
+# execute normally.

@@ -1,0 +1,30 @@
+pipeline:
+  stages:
+    - name: R09a Deferred All Infra
+      id: R09a_Deferred_All_Infra
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+        on-failure:
+          - errors: [unknown]
+            action: fail
+      environment:
+        items:
+          - id: INVALID_ENV_ID
+            all-infra: true
+        on-failure:
+          - errors: [unknown]
+            action: fail
