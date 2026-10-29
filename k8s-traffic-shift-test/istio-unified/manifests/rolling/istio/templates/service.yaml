@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Values.name}}-svc-v1
+spec:
+  selector:
+    app: {{.Values.name}}-v1
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5678
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Values.name}}-svc-v2
+spec:
+  selector:
+    app: {{.Values.name}}-v2
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5678

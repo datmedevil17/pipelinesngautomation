@@ -1,0 +1,26 @@
+service:
+  name: tsistiorollcheck
+  identifier: tsistiorollcheck
+  orgIdentifier: organization_org_a818
+  projectIdentifier: project_proj_b28b
+  serviceDefinition:
+    type: Kubernetes
+    spec:
+      manifests:
+        - manifest:
+            identifier: m1
+            type: K8sManifest
+            spec:
+              store:
+                type: Github
+                spec:
+                  connectorRef: connector_Github_4137_classic
+                  gitFetchType: Branch
+                  paths:
+                    - k8s-traffic-shift-test/istio-unified/manifests/rolling/istio/templates
+                  branch: main
+              valuesPaths:
+                - k8s-traffic-shift-test/istio-unified/manifests/rolling/istio/values.yaml
+              skipResourceVersioning: false
+              enableDeclarativeRollback: false
+  gitOpsEnabled: false

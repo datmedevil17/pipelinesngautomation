@@ -1,0 +1,124 @@
+pipeline:
+  clone:
+    disabled: true
+  stages:
+    - name: Deploy
+      id: stage1
+      service:
+        type: kubernetes
+        items:
+          - tsistioplain
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: ensureIstioNamespace
+          id: ensureIstioNamespace
+          run:
+            shell: bash
+            script: |-
+              set -eu
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              # Idempotent bootstrap: verify cluster-scoped Istio prerequisites (never installs Istio), then make
+              # sure the test namespace exists and carries istio-injection=enabled. Only the namespace and that
+              # label are ever mutated; nothing is deleted.
+              NAMESPACE="<+infra.namespace>"
+              ISTIO_SYSTEM_NS="istio-system"
+
+              if ! printf '%s' "$NAMESPACE" | grep -Eq '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'; then
+                echo "FAIL: infra namespace '$NAMESPACE' is empty, unresolved or not a valid namespace name"
+                exit 1
+              fi
+
+              echo "== Istio prerequisites (read-only) =="
+
+              if ! DEPLOYS=$(kubectl -n "$ISTIO_SYSTEM_NS" get deployments -o name 2>&1); then
+                echo "FAIL: cannot list deployments in $ISTIO_SYSTEM_NS (Istio not installed or no access): $DEPLOYS"
+                exit 1
+              fi
+              ISTIOD_LIST=$(echo "$DEPLOYS" | grep -E '/istiod($|-)' || true)
+              if [ -z "$ISTIOD_LIST" ]; then
+                echo "FAIL: no istiod deployment in $ISTIO_SYSTEM_NS. Install Istio on the cluster first (this bootstrap does not install it)."
+                exit 1
+              fi
+              ISTIOD_READY=0
+              for D in $ISTIOD_LIST; do
+                READY=$(kubectl -n "$ISTIO_SYSTEM_NS" get "$D" -o jsonpath='{.status.readyReplicas}')
+                if [ "${READY:-0}" -ge 1 ]; then
+                  echo "PASS: $D ready ($READY replica(s))"
+                  ISTIOD_READY=1
+                else
+                  echo "INFO: $D has no ready replicas"
+                fi
+              done
+              if [ "$ISTIOD_READY" -ne 1 ]; then
+                echo "FAIL: no istiod deployment in $ISTIO_SYSTEM_NS is ready."
+                exit 1
+              fi
+
+              for CRD in virtualservices.networking.istio.io destinationrules.networking.istio.io gateways.networking.istio.io; do
+                if OUT=$(kubectl get crd "$CRD" -o name 2>&1); then
+                  echo "PASS: CRD $CRD exists"
+                else
+                  echo "FAIL: CRD $CRD missing or not readable. Install the Istio CRDs first: $OUT"
+                  exit 1
+                fi
+              done
+
+              if ! WEBHOOKS=$(kubectl get mutatingwebhookconfigurations -o name 2>&1); then
+                echo "FAIL: cannot list mutatingwebhookconfigurations: $WEBHOOKS"
+                exit 1
+              fi
+              if echo "$WEBHOOKS" | grep -qiE 'sidecar-injector|istio-revision-tag'; then
+                echo "PASS: Istio sidecar-injector mutating webhook exists"
+              else
+                echo "FAIL: no Istio sidecar-injector mutating webhook found. Install/repair Istio first."
+                exit 1
+              fi
+
+              echo "== Namespace $NAMESPACE =="
+
+              if NS_OUT=$(kubectl get namespace "$NAMESPACE" -o name 2>&1); then
+                echo "SKIP: namespace $NAMESPACE already present"
+              elif echo "$NS_OUT" | grep -qi "NotFound"; then
+                if CREATE_OUT=$(kubectl create namespace "$NAMESPACE" 2>&1); then
+                  echo "CREATE: namespace $NAMESPACE created"
+                else
+                  echo "FAIL: could not create namespace $NAMESPACE (needs 'create' on 'namespaces'): $CREATE_OUT"
+                  exit 1
+                fi
+              else
+                echo "FAIL: could not read namespace $NAMESPACE: $NS_OUT"
+                exit 1
+              fi
+
+              CURRENT_LABEL=$(kubectl get namespace "$NAMESPACE" -o jsonpath="{.metadata.labels['istio-injection']}")
+              if [ "$CURRENT_LABEL" = "enabled" ]; then
+                echo "SKIP: istio-injection=enabled already set on $NAMESPACE"
+              elif LABEL_OUT=$(kubectl label namespace "$NAMESPACE" istio-injection=enabled --overwrite 2>&1); then
+                echo "CREATE: labelled $NAMESPACE with istio-injection=enabled (was '${CURRENT_LABEL:-none}')"
+              else
+                echo "FAIL: could not label namespace $NAMESPACE (needs 'patch' on 'namespaces'): $LABEL_OUT"
+                exit 1
+              fi
+
+              echo "PASS: Istio bootstrap complete for namespace $NAMESPACE"
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+          timeout: 5m
+      rollback: []
+      on-failure:
+        - errors:
+            - all
+          action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      timeout: 15m
+      shared-paths:
+        - /var/run

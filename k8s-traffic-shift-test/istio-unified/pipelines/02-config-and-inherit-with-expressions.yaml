@@ -1,0 +1,234 @@
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    trResourceName:
+      type: string
+      value: vs-expr-tsistioplain
+    trRoutesRoute1:
+      type: string
+      value: route1
+    trRoutesRoute1Dest1Host:
+      type: string
+      value: svc1
+    trRoutesRoute1Dest1Weight:
+      type: number
+      value: 65
+    trRoutesRoute1Dest2Host:
+      type: string
+      value: svc2
+    trRoutesRoute1Dest2Weight:
+      type: number
+      value: 35
+    trRoutesRoute1Dest2WeightChanged:
+      type: number
+      value: 80
+    trRoutesRoute1RulesUri:
+      type: string
+      value: /login
+    trRoutesRoute1RulesHeader:
+      type: string
+      value: authxx
+  stages:
+    - name: Deploy
+      id: stage1
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-expr
+      service:
+        type: kubernetes
+        items:
+          - tsistioplain
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup
+          id: PreCleanup
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/VirtualService/${{pipeline.inputs.trResourceName}}
+          timeout: 15m
+        - name: config
+          id: K8sTrafficRoutingConfig
+          deploy:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: istio
+              resource_name: ${{pipeline.inputs.trResourceName}}
+              delegate_service: false
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310002
+              hosts:
+                - test.com
+              gateways:
+                - testgateway
+              routes:
+                - type: http
+                  name: ${{pipeline.inputs.trRoutesRoute1}}
+                  matches:
+                    - uri:
+                        type: prefix
+                        value: ${{pipeline.inputs.trRoutesRoute1RulesUri}}
+                    - method:
+                        type: exact
+                        value: POST
+                    - headers:
+                        - key: X-Request
+                          type: prefix
+                          value: ${{pipeline.inputs.trRoutesRoute1RulesHeader}}
+                  destinations:
+                    - host: ${{pipeline.inputs.trRoutesRoute1Dest1Host}}
+                      weight: ${{pipeline.inputs.trRoutesRoute1Dest1Weight}}
+                    - host: ${{pipeline.inputs.trRoutesRoute1Dest2Host}}
+                      weight: ${{pipeline.inputs.trRoutesRoute1Dest2Weight}}
+          timeout: 15m
+        - name: verifyResourcesExist
+          id: verifyResourcesExist
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              kubectl get virtualservice ${{pipeline.inputs.trResourceName}} -n <+infra.namespace> > /dev/null 2>&1
+              if [ $? -eq 0 ]; then
+                echo "VirtualService ${{pipeline.inputs.trResourceName}} exists."
+              else
+                echo "VirtualService ${{pipeline.inputs.trResourceName}} does not exist."
+                exit 1
+              fi
+          timeout: 15m
+        - name: verifyWeightsForRoute1AfterConfigStep
+          id: verifyWeightsForRoute1AfterConfigStep
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              routes=$(kubectl get virtualservice ${{pipeline.inputs.trResourceName}} -n <+infra.namespace> -o jsonpath='{range .spec.http[*]}{.name}{"|"}{range .route[*]}{.destination.host}{"="}{.weight}{","}{end}{"\n"}{end}')
+              if [ $? -ne 0 ] || [ -z "$routes" ]; then
+                echo "FAIL: VirtualService ${{pipeline.inputs.trResourceName}} not found or has no http routes"
+                exit 1
+              fi
+              echo "$routes"
+
+              FAILED=0
+              # route names may be emitted as-is or prefixed with the resource name (<resource>-<route>)
+              check() {
+                r=$1; shift
+                line=$(echo "$routes" | awk -F'|' -v r="$r" '$1==r || $1 ~ ("-" r "$") {print; exit}')
+                if [ -z "$line" ]; then echo "FAIL: route $r not found"; FAILED=1; return; fi
+                for hw in "$@"; do
+                  case ",${line#*|}" in
+                    *",$hw,"*) echo "PASS: $r $hw" ;;
+                    *) echo "FAIL: $r expected $hw, got ${line#*|}"; FAILED=1 ;;
+                  esac
+                done
+              }
+              check "${{pipeline.inputs.trRoutesRoute1}}" "${{pipeline.inputs.trRoutesRoute1Dest1Host}}=${{pipeline.inputs.trRoutesRoute1Dest1Weight}}" "${{pipeline.inputs.trRoutesRoute1Dest2Host}}=${{pipeline.inputs.trRoutesRoute1Dest2Weight}}"
+              [ $FAILED -eq 0 ] || exit 1
+          timeout: 15m
+        - name: inherit
+          id: K8sTrafficRoutingInherit
+          deploy:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: istio
+              resource_name: ${{pipeline.inputs.trResourceName}}
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310002
+              routes:
+                - type: http
+                  name: ${{pipeline.inputs.trRoutesRoute1}}
+                  destinations:
+                    - host: ${{pipeline.inputs.trRoutesRoute1Dest2Host}}
+                      weight: ${{pipeline.inputs.trRoutesRoute1Dest2WeightChanged}}
+          timeout: 15m
+        - name: verifyWeightsForRoute1AfterInheritStep
+          id: verifyWeightsForRoute1AfterInheritStep
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              routes=$(kubectl get virtualservice ${{pipeline.inputs.trResourceName}} -n <+infra.namespace> -o jsonpath='{range .spec.http[*]}{.name}{"|"}{range .route[*]}{.destination.host}{"="}{.weight}{","}{end}{"\n"}{end}')
+              if [ $? -ne 0 ] || [ -z "$routes" ]; then
+                echo "FAIL: VirtualService ${{pipeline.inputs.trResourceName}} not found or has no http routes"
+                exit 1
+              fi
+              echo "$routes"
+
+              FAILED=0
+              # route names may be emitted as-is or prefixed with the resource name (<resource>-<route>)
+              check() {
+                r=$1; shift
+                line=$(echo "$routes" | awk -F'|' -v r="$r" '$1==r || $1 ~ ("-" r "$") {print; exit}')
+                if [ -z "$line" ]; then echo "FAIL: route $r not found"; FAILED=1; return; fi
+                for hw in "$@"; do
+                  case ",${line#*|}" in
+                    *",$hw,"*) echo "PASS: $r $hw" ;;
+                    *) echo "FAIL: $r expected $hw, got ${line#*|}"; FAILED=1 ;;
+                  esac
+                done
+              }
+              check "${{pipeline.inputs.trRoutesRoute1}}" "${{pipeline.inputs.trRoutesRoute1Dest2Host}}=${{pipeline.inputs.trRoutesRoute1Dest2WeightChanged}}"
+              [ $FAILED -eq 0 ] || exit 1
+          timeout: 15m
+        - name: DeleteTrafficRoutingResources
+          id: DeleteTrafficRoutingResources
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/VirtualService/${{pipeline.inputs.trResourceName}}
+          timeout: 15m
+      rollback:
+        - name: RollbackDelete
+          id: RollbackDelete
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-310002
+          timeout: 15m
+        - name: RollbackDeleteResources
+          id: RollbackDeleteResources
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/VirtualService/${{pipeline.inputs.trResourceName}}
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m

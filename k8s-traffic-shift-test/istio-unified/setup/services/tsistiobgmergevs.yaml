@@ -1,0 +1,156 @@
+service:
+  name: tsistiobgmergevs
+  identifier: tsistiobgmergevs
+  orgIdentifier: organization_org_a818
+  projectIdentifier: project_proj_b28b
+  serviceDefinition:
+    type: Kubernetes
+    spec:
+      manifests:
+        - manifest:
+            identifier: m1
+            type: K8sManifest
+            spec:
+              store:
+                type: CustomRemote
+                spec:
+                  filePath: manifests/
+                  extractionScript: |-
+                    mkdir -p manifests
+                    cat <<'DEPLOYMENT' > manifests/deployment.yaml
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: {{.Values.name}}
+                    spec:
+                      replicas: 1
+                      selector:
+                        matchLabels:
+                          app: {{.Values.name}}
+                      template:
+                        metadata:
+                          labels:
+                            app: {{.Values.name}}
+                        spec:
+                          containers:
+                            - name: {{.Values.name}}
+                              image: {{.Values.image}}
+                              ports:
+                                - containerPort: 80
+                    DEPLOYMENT
+                    cat <<'SERVICE' > manifests/service.yaml
+                    apiVersion: v1
+                    kind: Service
+                    metadata:
+                      name: {{.Values.name}}-svc
+                    spec:
+                      selector:
+                        app: {{.Values.name}}
+                      ports:
+                        - port: 8080
+                          targetPort: 80
+                    SERVICE
+                    cat <<'VSA' > manifests/vs-a.yaml
+                    apiVersion: networking.istio.io/v1beta1
+                    kind: VirtualService
+                    metadata:
+                      name: {{.Values.name}}-vs-a
+                      annotations:
+                        harness.io/direct-apply: "true"
+                    spec:
+                      hosts:
+                      - svc-a.example.com
+                      gateways:
+                      - original-gateway-a
+                      http:
+                      - name: route-a
+                        headers:
+                          request:
+                            set:
+                              x-vs-a-header: original-value
+                        route:
+                        - destination:
+                            host: {{.Values.name}}-svc
+                            port:
+                              number: 8080
+                          weight: 100
+                    VSA
+                    cat <<'VSB' > manifests/vs-b.yaml
+                    apiVersion: networking.istio.io/v1beta1
+                    kind: VirtualService
+                    metadata:
+                      name: {{.Values.name}}-vs-b
+                      annotations:
+                        harness.io/direct-apply: "true"
+                    spec:
+                      hosts:
+                      - my-app.example.com
+                      gateways:
+                      - customer-gateway
+                      http:
+                      - name: esignature-route
+                        headers:
+                          request:
+                            set:
+                              Content-Type: application/json
+                              X-Request-ID: trace-123
+                            add:
+                              X-Forwarded-For: client-ip
+                            remove:
+                            - X-Internal-Debug
+                          response:
+                            set:
+                              X-Response-Source: canary
+                            remove:
+                            - X-Server-Version
+                        fault:
+                          delay:
+                            percentage:
+                              value: 0.1
+                            fixedDelay: 5s
+                        timeout: 30s
+                        retries:
+                          attempts: 3
+                          perTryTimeout: 10s
+                          retryOn: gateway-error,connect-failure
+                        route:
+                        - destination:
+                            host: {{.Values.name}}-svc
+                            port:
+                              number: 8080
+                            subset: stable
+                          headers:
+                            response:
+                              remove:
+                              - x-server-internal
+                          weight: 100
+                        - destination:
+                            host: {{.Values.name}}-svc-stage
+                            port:
+                              number: 9090
+                            subset: canary
+                          headers:
+                            response:
+                              set:
+                                x-canary: "true"
+                          weight: 0
+                      - name: test-route-bg
+                        headers:
+                          request:
+                            set:
+                              Content-Type: application/json
+                        route:
+                        - destination:
+                            host: {{.Values.name}}-svc
+                            port:
+                              number: 8080
+                          weight: 100
+                    VSB
+                    cat <<'VALUES' > manifests/values.yaml
+                    name: ${{stage.inputs.resourceNamePrefix}}
+                    image: nginx:latest
+                    VALUES
+              skipResourceVersioning: false
+              valuesPaths:
+                - manifests/values.yaml
+  gitOpsEnabled: false

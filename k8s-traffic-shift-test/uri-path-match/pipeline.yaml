@@ -1,0 +1,385 @@
+# uri + path match support (route-api: uri exact, route-web: path prefix, route-new-extra: uri prefix)
+# Copy of local pipeline_e351 with mixed match keys; both validators also assert all three matches.
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    responseText:
+      type: string
+      value: v1
+    trafficGeneratorSleepTimer:
+      type: number
+      value: 1
+  stages:
+    - name: Deploy
+      id: stage1
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: sample-k8s-cogm
+      service:
+        type: kubernetes
+        items:
+          - k8scanary_custom_remote
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup
+          id: PreCleanup
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/virtualserviceautomation
+          timeout: 15m
+        - name: CanaryDeployment
+          id: CanaryDeployment
+          deploy:
+            uses: k8sCanaryDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-107001
+              skip_dry_run: false
+              unit_type: count
+              instances: "1"
+              traffic_shift: true
+              provider: istio
+              resource_name: virtualserviceautomation
+              routes:
+                - type: http
+                  name: route-api
+                  matches:
+                    - uri:
+                        type: exact
+                        value: /api/v2
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 80
+                      port: 9090
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 20
+                      port: 9090
+                - type: http
+                  name: route-web
+                  matches:
+                    - path:
+                        type: prefix
+                        value: /web
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 60
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 40
+                - type: http
+                  name: route-new-extra
+                  matches:
+                    - uri:
+                        type: prefix
+                        value: /extra
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 50
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 50
+          timeout: 15m
+        - name: Validate Merge After Config
+          id: validateMergeAfterConfig
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              VS_NAME="virtualserviceautomation"
+
+              SERVICE_JSON=$(kubectl get virtualservice/$VS_NAME -n $NAMESPACE -o json)
+              echo "$SERVICE_JSON"
+              echo "=========================================="
+
+              FAILED=0
+
+              if echo "$SERVICE_JSON" | grep -q '"x-custom"'; then
+                echo "PASS: route-api headers.request.set.x-custom preserved"
+              else
+                echo "FAIL: route-api headers.request.set.x-custom missing"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"fixedDelay"' && echo "$SERVICE_JSON" | grep -q '"5s"'; then
+                echo "PASS: route-api fault.delay preserved"
+              else
+                echo "FAIL: route-api fault.delay missing"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"timeout"' && echo "$SERVICE_JSON" | grep -q '"30s"'; then
+                echo "PASS: route-api timeout preserved"
+              else
+                echo "FAIL: route-api timeout missing"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"attempts"' && echo "$SERVICE_JSON" | grep -q ': 3'; then
+                echo "PASS: route-api retries preserved"
+              else
+                echo "FAIL: route-api retries missing"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"subset": "v2"'; then
+                echo "PASS: destination subset v2 preserved"
+              else
+                echo "FAIL: destination subset v2 missing"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"x-server-internal"'; then
+                echo "PASS: destination response headers preserved"
+              else
+                echo "FAIL: destination response headers x-server-internal missing"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"number": 9090'; then
+                echo "PASS: destination port overridden to 9090"
+              else
+                echo "FAIL: destination port not 9090"
+                FAILED=1
+              fi
+              if echo "$SERVICE_JSON" | grep -q '"number": 8080'; then
+                echo "FAIL: old port 8080 should be overridden"
+                FAILED=1
+              else
+                echo "PASS: old port 8080 no longer present"
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"x-web"'; then
+                echo "PASS: route-web headers preserved"
+              else
+                echo "FAIL: route-web headers x-web missing"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"x-admin"'; then
+                echo "PASS: route-admin preserved untouched"
+              else
+                echo "FAIL: route-admin headers x-admin missing"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q 'route-new-extra'; then
+                echo "PASS: extra step route route-new-extra appended"
+              else
+                echo "FAIL: route-new-extra not found"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"/api/v2"'; then
+                echo "PASS: match rules overwritten to /api/v2"
+              else
+                echo "FAIL: match rules not updated"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"harness.io/managed"'; then
+                echo "PASS: Harness managed label present"
+              else
+                echo "FAIL: Harness managed label missing"
+                FAILED=1
+              fi
+
+              for want in '"exact": "/api/v2"' '"prefix": "/web"' '"prefix": "/extra"'; do
+                if echo "$SERVICE_JSON" | grep -q "$want"; then
+                  echo "PASS: match $want present"
+                else
+                  echo "FAIL: match $want missing"
+                  FAILED=1
+                fi
+              done
+              if echo "$SERVICE_JSON" | grep -qE '^\s*\{\},?$'; then
+                echo "FAIL: empty match {} found"
+                FAILED=1
+              else
+                echo "PASS: no empty match"
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more validations FAILED"
+                exit 1
+              fi
+              echo "All merge validations PASSED"
+          timeout: 15m
+        - name: inherit
+          id: K8sTrafficRoutingInherit
+          deploy:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: istio
+              resource_name: virtualserviceautomation
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-107001
+              routes:
+                - type: http
+                  name: route-api
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 60
+                - type: http
+                  name: route-web
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 80
+          timeout: 15m
+        - name: Validate After Inherit
+          id: validateAfterInherit
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              VS_NAME="virtualserviceautomation"
+
+              SERVICE_JSON=$(kubectl get virtualservice/$VS_NAME -n $NAMESPACE -o json)
+              echo "$SERVICE_JSON"
+              echo "=========================================="
+
+              FAILED=0
+
+              if echo "$SERVICE_JSON" | grep -q '"x-custom"'; then
+                echo "PASS: route-api headers still preserved after inherit"
+              else
+                echo "FAIL: route-api headers lost after inherit"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"fixedDelay"' && echo "$SERVICE_JSON" | grep -q '"5s"'; then
+                echo "PASS: fault injection preserved after inherit"
+              else
+                echo "FAIL: fault injection lost after inherit"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"subset": "v2"'; then
+                echo "PASS: subset v2 preserved after inherit"
+              else
+                echo "FAIL: subset v2 lost after inherit"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"number": 9090'; then
+                echo "PASS: port 9090 preserved after inherit"
+              else
+                echo "FAIL: port 9090 lost after inherit"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"x-server-internal"'; then
+                echo "PASS: destination response headers preserved after inherit"
+              else
+                echo "FAIL: destination response headers lost after inherit"
+                FAILED=1
+              fi
+
+              if echo "$SERVICE_JSON" | grep -q '"x-admin"'; then
+                echo "PASS: route-admin untouched after inherit"
+              else
+                echo "FAIL: route-admin lost after inherit"
+                FAILED=1
+              fi
+
+              for want in '"exact": "/api/v2"' '"prefix": "/web"' '"prefix": "/extra"'; do
+                if echo "$SERVICE_JSON" | grep -q "$want"; then
+                  echo "PASS: match $want present"
+                else
+                  echo "FAIL: match $want missing"
+                  FAILED=1
+                fi
+              done
+              if echo "$SERVICE_JSON" | grep -qE '^\s*\{\},?$'; then
+                echo "FAIL: empty match {} found"
+                FAILED=1
+              else
+                echo "PASS: no empty match"
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more post-inherit validations FAILED"
+                exit 1
+              fi
+              echo "All post-inherit validations PASSED"
+          timeout: 15m
+        - name: CanaryDelete
+          id: CanaryDelete
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: DeleteResources
+          id: DeleteResources
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/virtualserviceautomation
+          timeout: 15m
+      rollback:
+        - name: RollbackCanaryDelete
+          id: rollbackCanaryDelete
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: RollbackDelete
+          id: RollbackDelete
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-107001
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+       
+      timeout: 15m
+

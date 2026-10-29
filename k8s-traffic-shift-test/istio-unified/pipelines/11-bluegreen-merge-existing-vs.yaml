@@ -1,0 +1,356 @@
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    responseText:
+      type: string
+      value: v1
+    trafficGeneratorSleepTimer:
+      type: number
+      value: 1
+  stages:
+    - name: Deploy
+      id: stage1
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-bgmerge
+      service:
+        type: kubernetes
+        items:
+          - tsistiobgmergevs
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup
+          id: PreCleanup
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-a
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-b
+          timeout: 15m
+        - name: BlueGreenDeployment
+          id: BlueGreenDeployment
+          deploy:
+            uses: k8sBlueGreenDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310011
+              skip_dry_run: false
+              pruning: false
+              skip_unchanged_manifest: false
+              traffic_shift: true
+              provider: istio
+              resource_name: ${{stage.inputs.resourceNamePrefix}}-vs-b
+              gateways:
+                - step-gateway
+              routes:
+                - type: http
+                  name: esignature-route
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 90
+                      port: 9090
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-stage
+                      weight: 10
+                      port: 9090
+          timeout: 15m
+        - name: Validate BG Deploy Merge
+          id: validateBGDeployMerge
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+              VS_A_NAME="${PREFIX}-vs-a"
+              VS_B_NAME="${PREFIX}-vs-b"
+
+              FAILED=0
+
+              echo "===== SCENARIO 1: Multiple VS - only target vs-b merged, vs-a untouched ====="
+              VSA_JSON=$(kubectl get virtualservice/$VS_A_NAME -n $NAMESPACE -o json)
+              if [ $? -ne 0 ]; then
+                echo "FAIL: vs-a not found in namespace $NAMESPACE"
+                FAILED=1
+              else
+                if echo "$VSA_JSON" | grep -q '"x-vs-a-header"'; then
+                  echo "PASS: vs-a header x-vs-a-header preserved"
+                else
+                  echo "FAIL: vs-a header x-vs-a-header missing"
+                  FAILED=1
+                fi
+                if echo "$VSA_JSON" | grep -q '"original-gateway-a"'; then
+                  echo "PASS: vs-a gateway original-gateway-a untouched"
+                else
+                  echo "FAIL: vs-a gateway original-gateway-a missing"
+                  FAILED=1
+                fi
+                if echo "$VSA_JSON" | grep -q '"svc-a.example.com"'; then
+                  echo "PASS: vs-a host svc-a.example.com untouched"
+                else
+                  echo "FAIL: vs-a host svc-a.example.com missing"
+                  FAILED=1
+                fi
+              fi
+
+              echo ""
+              echo "===== SCENARIO 2: Step gateways override manifest gateways ====="
+              VSB_JSON=$(kubectl get virtualservice/$VS_B_NAME -n $NAMESPACE -o json)
+              echo "$VSB_JSON"
+              echo "=========================================="
+
+              if [ -z "$VSB_JSON" ]; then
+                echo "FAIL: vs-b not found in namespace $NAMESPACE"
+                FAILED=1
+              else
+                if echo "$VSB_JSON" | grep -q '"step-gateway"'; then
+                  echo "PASS: spec.gateways contains step-gateway"
+                else
+                  echo "FAIL: step-gateway not found in spec.gateways"
+                  FAILED=1
+                fi
+                if echo "$VSB_JSON" | grep -q '"customer-gateway"'; then
+                  echo "FAIL: customer-gateway still present in spec.gateways"
+                  FAILED=1
+                else
+                  echo "PASS: customer-gateway NOT in spec.gateways (overridden)"
+                fi
+              fi
+
+              echo ""
+              echo "===== SCENARIO 3: Namespace not overwritten if present in manifest ====="
+              if echo "$VSB_JSON" | grep -q "\"namespace\": \"$NAMESPACE\""; then
+                echo "PASS: VirtualService metadata.namespace is $NAMESPACE (preserved from manifest)"
+              else
+                echo "FAIL: VirtualService namespace not $NAMESPACE"
+                FAILED=1
+              fi
+
+              echo ""
+              echo "===== Additional merge validations on vs-b ====="
+              if echo "$VSB_JSON" | grep -q '"fixedDelay"' && echo "$VSB_JSON" | grep -q '"5s"'; then
+                echo "PASS: esignature-route fault.delay preserved"
+              else
+                echo "FAIL: esignature-route fault.delay missing"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"timeout"' && echo "$VSB_JSON" | grep -q '"30s"'; then
+                echo "PASS: esignature-route timeout preserved"
+              else
+                echo "FAIL: esignature-route timeout missing"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"attempts"' && echo "$VSB_JSON" | grep -q ': 3'; then
+                echo "PASS: esignature-route retries preserved"
+              else
+                echo "FAIL: esignature-route retries missing"
+                FAILED=1
+              fi
+
+              PORT_COUNT=$(echo "$VSB_JSON" | grep -c '"number": 9090' || true)
+              if [ "$PORT_COUNT" -ge 2 ]; then
+                echo "PASS: destination port overridden to 9090 on both destinations"
+              else
+                echo "FAIL: destination port 9090 not on both destinations (count: $PORT_COUNT)"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"subset": "stable"'; then
+                echo "PASS: destination subset stable preserved"
+              else
+                echo "FAIL: destination subset stable missing"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"x-server-internal"'; then
+                echo "PASS: destination response headers x-server-internal preserved"
+              else
+                echo "FAIL: destination response headers x-server-internal missing"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"harness.io/managed"'; then
+                echo "PASS: Harness managed label present"
+              else
+                echo "FAIL: Harness managed label missing"
+                FAILED=1
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more validations FAILED"
+                exit 1
+              fi
+              echo "All BG deploy merge validations PASSED"
+          timeout: 15m
+        - name: Swap primary with stage service
+          id: BgSwapServices
+          deploy:
+            uses: k8sBlueGreenSwapServicesSelectorsStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              stable_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stableService}}
+              stage_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stageService}}
+              is_openshift: ${{stage.steps.BlueGreenDeployment.output.outputVariables.isOpenshift}}
+              skip_dry_run: false
+              traffic_routing:
+                preserve_fields: true
+          timeout: 15m
+        - name: Validate BG Swap PreserveFields
+          id: validateBGSwapPreserveFields
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+              VS_B_NAME="${PREFIX}-vs-b"
+
+              FAILED=0
+
+              VSB_JSON=$(kubectl get virtualservice/$VS_B_NAME -n $NAMESPACE -o json)
+              if [ $? -ne 0 ]; then
+                echo "FAIL: vs-b not found after swap"
+                exit 1
+              fi
+              echo "$VSB_JSON"
+              echo "=========================================="
+
+              echo "===== SCENARIO 4: BG swap preserveFields - dest headers, port, subset preserved ====="
+              if echo "$VSB_JSON" | grep -q '"x-canary"'; then
+                echo "PASS: destination-level header x-canary preserved after swap"
+              else
+                echo "FAIL: destination-level header x-canary missing after swap"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"subset": "stable"'; then
+                echo "PASS: subset stable preserved after swap"
+              else
+                echo "FAIL: subset stable missing after swap"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"subset": "canary"'; then
+                echo "PASS: subset canary preserved after swap"
+              else
+                echo "FAIL: subset canary missing after swap"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"x-server-internal"'; then
+                echo "PASS: destination response headers x-server-internal preserved after swap"
+              else
+                echo "FAIL: destination response headers x-server-internal missing after swap"
+                FAILED=1
+              fi
+
+              echo ""
+              echo "===== SCENARIO 5: BG swap preserveFields - ports preserved on both destinations ====="
+              PORT_COUNT=$(echo "$VSB_JSON" | grep -c '"number": 9090' || true)
+              if [ "$PORT_COUNT" -ge 2 ]; then
+                echo "PASS: port 9090 preserved on both stable and stage destinations after swap"
+              else
+                echo "FAIL: port 9090 not on both destinations (count: $PORT_COUNT)"
+                FAILED=1
+              fi
+
+              WEIGHT_100=$(echo "$VSB_JSON" | grep -c '"weight": 100' || true)
+              WEIGHT_0=$(echo "$VSB_JSON" | grep -c '"weight": 0' || true)
+              echo "Weights after swap: 100 count=$WEIGHT_100, 0 count=$WEIGHT_0"
+              if [ "$WEIGHT_100" -ge 1 ] && [ "$WEIGHT_0" -ge 1 ]; then
+                echo "PASS: weights swapped correctly (100/0)"
+              else
+                echo "FAIL: weights not correctly swapped"
+                FAILED=1
+              fi
+
+              echo ""
+              echo "===== Post-swap fault/timeout/retries preserved ====="
+              if echo "$VSB_JSON" | grep -q '"fixedDelay"' && echo "$VSB_JSON" | grep -q '"5s"'; then
+                echo "PASS: fault injection preserved after swap"
+              else
+                echo "FAIL: fault injection lost after swap"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"timeout"' && echo "$VSB_JSON" | grep -q '"30s"'; then
+                echo "PASS: timeout preserved after swap"
+              else
+                echo "FAIL: timeout lost after swap"
+                FAILED=1
+              fi
+
+              if echo "$VSB_JSON" | grep -q '"attempts"' && echo "$VSB_JSON" | grep -q ': 3'; then
+                echo "PASS: retries preserved after swap"
+              else
+                echo "FAIL: retries lost after swap"
+                FAILED=1
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more post-swap validations FAILED"
+                exit 1
+              fi
+              echo "All BG swap preserveFields validations PASSED"
+          timeout: 15m
+        - name: DeleteResources
+          id: DeleteResources
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-a
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-b
+          timeout: 15m
+      rollback:
+        - name: RollbackDelete
+          id: RollbackDelete
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-310011
+          timeout: 15m
+        - name: RollbackDeleteResources
+          id: RollbackDeleteResources
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-a
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-b
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m

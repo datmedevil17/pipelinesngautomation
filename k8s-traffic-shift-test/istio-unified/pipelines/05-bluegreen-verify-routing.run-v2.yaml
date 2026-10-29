@@ -1,0 +1,292 @@
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    responseText:
+      type: string
+      value: v2
+    trafficGeneratorSleepTimer:
+      type: number
+      value: 1
+  stages:
+    - name: Deploy
+      id: stage1
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-bg
+      service:
+        type: kubernetes
+        items:
+          - tsistiobgcheck
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup
+          id: PreCleanup
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-traffic-generator
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-blue
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-green
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-stage
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiobgcheck
+          timeout: 15m
+        - name: BlueGreenDeployment
+          id: BlueGreenDeployment
+          deploy:
+            uses: k8sBlueGreenDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310005
+              skip_dry_run: false
+              pruning: false
+              skip_unchanged_manifest: false
+              traffic_shift: true
+              provider: istio
+              resource_name: virtual-service-tsistiobgcheck
+              hosts:
+                - ${{stage.inputs.resourceNamePrefix}}-svc
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 90
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-stage
+                      weight: 10
+          timeout: 15m
+        - name: verifyVirtualService
+          id: verifyVirtualService
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+              routes=$(kubectl get virtualservice virtual-service-tsistiobgcheck -n <+infra.namespace> -o jsonpath='{range .spec.http[*]}{.name}{"|"}{range .route[*]}{.destination.host}{"="}{.weight}{","}{end}{"\n"}{end}')
+              if [ $? -ne 0 ] || [ -z "$routes" ]; then
+                echo "FAIL: VirtualService virtual-service-tsistiobgcheck not found or has no http routes"
+                exit 1
+              fi
+              echo "$routes"
+              line=$(echo "$routes" | awk -F'|' '$1=="route1" || $1 ~ /-route1$/ {print; exit}')
+              if [ -z "$line" ]; then
+                echo "FAIL: route1 not found"
+                exit 1
+              fi
+              FAILED=0
+              for hw in "${PREFIX}-svc=90" "${PREFIX}-svc-stage=10"; do
+                case ",${line#*|}" in
+                  *",$hw,"*) echo "PASS: route1 $hw" ;;
+                  *) echo "FAIL: route1 expected $hw, got ${line#*|}"; FAILED=1 ;;
+                esac
+              done
+              [ $FAILED -eq 0 ] || exit 1
+          timeout: 15m
+        - name: check
+          id: check
+          if: <+OnStageSuccess>
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            output:
+              - name: verifyRouting
+                type: String
+                value: isNotNewDeployment
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              NAMESPACE="<+infra.namespace>"
+
+              kubectl get deployment ${{stage.inputs.resourceNamePrefix}}-blue -n $NAMESPACE > /dev/null 2>&1
+              if [ $? -eq 0 ]; then
+                kubectl get deployment ${{stage.inputs.resourceNamePrefix}}-green -n $NAMESPACE > /dev/null 2>&1
+                if [ $? -eq 0 ]; then
+                  isNotNewDeployment=true
+                else
+                  isNotNewDeployment=false
+                fi
+              else
+                isNotNewDeployment=false
+              fi
+
+              # the step output "verifyRouting" is read from a shell variable of the same name
+              verifyRouting=$isNotNewDeployment
+          timeout: 15m
+        - parallel:
+            steps:
+              - group:
+                  steps:
+                    - name: ApplyTrafficGenerator
+                      id: ApplyTrafficGenerator
+                      if: <+OnStageSuccess>
+                      deploy:
+                        uses: k8sApplyStep
+                        with:
+                          kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+                          namespace: <+infra.namespace>
+                          release: releasename-310005
+                          manifests:
+                            - skipForDeployment/tr-bg-app-traffic-generator.yaml
+                          skip_dry_run: false
+                          skip_steady_state_check: false
+                          skip_rendering: false
+                      timeout: 15m
+                    - name: verifyRouting
+                      id: verifyRouting
+                      run:
+                        container:
+                          image: bitnami/kubectl
+                          connector: account.harnessImage
+                          pull: if-not-exists
+                        shell: bash
+                        script: |-
+                          export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+                          NAMESPACE="<+infra.namespace>"
+                          CONTAINER_NAME="${{stage.inputs.resourceNamePrefix}}-traffic-generator"
+
+                          sleep 70
+
+                          POD_NAME=$(kubectl get pods -n $NAMESPACE | grep $CONTAINER_NAME | awk '{print $1}' | head -n 1)
+                          if [ -z "$POD_NAME" ]; then
+                              echo "FAIL: traffic generator pod $CONTAINER_NAME not found"
+                              exit 1
+                          fi
+
+                          kubectl logs -n $NAMESPACE $POD_NAME $CONTAINER_NAME -f | awk '
+                          /DONE_COOKING/ {
+                              getline;
+                              split($0, arr1, ": ");
+                              v1_count = arr1[2];
+                              getline;
+                              split($0, arr2, ": ");
+                              v2_count = arr2[2];
+                              print "V1_COUNT=" v1_count;
+                              print "V2_COUNT=" v2_count;
+                              exit;
+                          }' > /tmp/temp_envs.sh
+
+                          if [ -s /tmp/temp_envs.sh ]; then
+                              . /tmp/temp_envs.sh
+
+                              targetForV1=900
+                              targetForV2=100
+                              # +-15% on the 90% share; the 10% share keeps +-30% (~3 sigma for 1000 samples)
+                              percentageV1=15
+                              percentageV2=30
+
+                              upper_bound_for_v1=$((targetForV1 + (targetForV1 * percentageV1 / 100)))
+                              lower_bound_for_v1=$((targetForV1 - (targetForV1 * percentageV1 / 100)))
+                              upper_bound_for_v2=$((targetForV2 + (targetForV2 * percentageV2 / 100)))
+                              lower_bound_for_v2=$((targetForV2 - (targetForV2 * percentageV2 / 100)))
+
+                              echo "Number of v1 responses: $V1_COUNT"
+                              echo "Number of v2 responses: $V2_COUNT"
+
+                              if [ "$V1_COUNT" -ge "$lower_bound_for_v1" ] && [ "$V1_COUNT" -le "$upper_bound_for_v1" ]; then
+                                  echo "The value of $V1_COUNT is within acceptable range of $targetForV1."
+                              else
+                                  echo "The value of $V1_COUNT is NOT within acceptable range of $targetForV1."
+                                  exit 1
+                              fi
+
+                              if [ "$V2_COUNT" -ge "$lower_bound_for_v2" ] && [ "$V2_COUNT" -le "$upper_bound_for_v2" ]; then
+                                  echo "The value of $V2_COUNT is within acceptable range of $targetForV2."
+                              else
+                                  echo "The value of $V2_COUNT is NOT within acceptable range of $targetForV2."
+                                  exit 1
+                              fi
+                          else
+                              echo "No data extracted."
+                              exit 1
+                          fi
+
+                          rm /tmp/temp_envs.sh
+                      timeout: 15m
+                    - name: Swap primary with stage service
+                      id: BgSwapServices1
+                      deploy:
+                        uses: k8sBlueGreenSwapServicesSelectorsStep
+                        with:
+                          kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+                          namespace: <+infra.namespace>
+                          stable_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stableService}}
+                          stage_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stageService}}
+                          is_openshift: ${{stage.steps.BlueGreenDeployment.output.outputVariables.isOpenshift}}
+                          skip_dry_run: false
+                      timeout: 15m
+                    - name: K8sDeleteApps
+                      id: K8sDeleteApps
+                      deploy:
+                        uses: k8sDeleteStep
+                        with:
+                          select_delete_resources: resources
+                          resources:
+                            - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-traffic-generator
+                            - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-blue
+                            - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-green
+                            - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                            - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-stage
+                            - <+infra.namespace>/VirtualService/virtual-service-tsistiobgcheck
+                      timeout: 15m
+                  id: verify_routing
+                  name: verify routing
+                if: <+OnStageSuccess> && (<+execution.steps.check.output.outputVariables.verifyRouting>==true)
+              - group:
+                  steps:
+                    - name: Swap primary with stage service
+                      id: BgSwapServices2
+                      deploy:
+                        uses: k8sBlueGreenSwapServicesSelectorsStep
+                        with:
+                          kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+                          namespace: <+infra.namespace>
+                          stable_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stableService}}
+                          stage_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stageService}}
+                          is_openshift: ${{stage.steps.BlueGreenDeployment.output.outputVariables.isOpenshift}}
+                          skip_dry_run: false
+                      timeout: 15m
+                  id: do_not_verify_routing
+                  name: do not verify routing
+                if: <+OnStageSuccess> && (<+execution.steps.check.output.outputVariables.verifyRouting>==false)
+          id: verifyRoutingParallel
+      rollback:
+        - name: RollbackDeleteApps
+          id: RollbackDeleteApps
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-traffic-generator
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-blue
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-green
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-stage
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiobgcheck
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m

@@ -1,0 +1,41 @@
+inputs:
+  overlay:
+    stages:
+      - id: stage1
+        steps:
+          - id: K8sTrafficRoutingConfig
+            deploy:
+              with:
+                resource_name: vs-rt-tsistioplain
+                hosts:
+                  - test.com
+                gateways:
+                  - testgateway
+                routes:
+                  - type: http
+                    name: route1
+                    matches:
+                      - uri:
+                          type: prefix
+                          value: /login
+                      - method:
+                          type: exact
+                          value: POST
+                      - headers:
+                          - key: X-Request
+                            type: prefix
+                            value: authxx
+                    destinations:
+                      - host: svc1
+                        weight: 65
+                      - host: svc2
+                        weight: 35
+          - id: K8sTrafficRoutingInherit
+            deploy:
+              with:
+                routes:
+                  - type: http
+                    name: route1
+                    destinations:
+                      - host: svc2
+                        weight: 80

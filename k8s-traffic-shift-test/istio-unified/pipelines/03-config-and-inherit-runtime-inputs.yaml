@@ -1,0 +1,181 @@
+pipeline:
+  clone:
+    disabled: true
+  stages:
+    - name: Deploy
+      id: stage1
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-rt
+      service:
+        type: kubernetes
+        items:
+          - tsistioplain
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup
+          id: PreCleanup
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/VirtualService/vs-rt-tsistioplain
+          timeout: 15m
+        - name: config
+          id: K8sTrafficRoutingConfig
+          deploy:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: istio
+              delegate_service: false
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310003
+              resource_name: <+input>
+              hosts: <+input>
+              gateways: <+input>
+              routes: <+input>
+          timeout: 15m
+        - name: verifyResourcesExist
+          id: verifyResourcesExist
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              kubectl get virtualservice vs-rt-tsistioplain -n <+infra.namespace> > /dev/null 2>&1
+              if [ $? -eq 0 ]; then
+                echo "VirtualService vs-rt-tsistioplain exists."
+              else
+                echo "VirtualService vs-rt-tsistioplain does not exist."
+                exit 1
+              fi
+          timeout: 15m
+        - name: verifyWeightsForRoutesAfterConfigStep
+          id: verifyWeightsForRoutesAfterConfigStep
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              routes=$(kubectl get virtualservice vs-rt-tsistioplain -n <+infra.namespace> -o jsonpath='{range .spec.http[*]}{.name}{"|"}{range .route[*]}{.destination.host}{"="}{.weight}{","}{end}{"\n"}{end}')
+              if [ $? -ne 0 ] || [ -z "$routes" ]; then
+                echo "FAIL: VirtualService vs-rt-tsistioplain not found or has no http routes"
+                exit 1
+              fi
+              echo "$routes"
+
+              FAILED=0
+              # route names may be emitted as-is or prefixed with the resource name (<resource>-<route>)
+              check() {
+                r=$1; shift
+                line=$(echo "$routes" | awk -F'|' -v r="$r" '$1==r || $1 ~ ("-" r "$") {print; exit}')
+                if [ -z "$line" ]; then echo "FAIL: route $r not found"; FAILED=1; return; fi
+                for hw in "$@"; do
+                  case ",${line#*|}" in
+                    *",$hw,"*) echo "PASS: $r $hw" ;;
+                    *) echo "FAIL: $r expected $hw, got ${line#*|}"; FAILED=1 ;;
+                  esac
+                done
+              }
+              check route1 svc1=65 svc2=35
+              [ $FAILED -eq 0 ] || exit 1
+          timeout: 15m
+        - name: inherit
+          id: K8sTrafficRoutingInherit
+          deploy:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: istio
+              resource_name: vs-rt-tsistioplain
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310003
+              routes: <+input>
+          timeout: 15m
+        - name: verifyWeightsForRoutesAfterInheritStep
+          id: verifyWeightsForRoutesAfterInheritStep
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              routes=$(kubectl get virtualservice vs-rt-tsistioplain -n <+infra.namespace> -o jsonpath='{range .spec.http[*]}{.name}{"|"}{range .route[*]}{.destination.host}{"="}{.weight}{","}{end}{"\n"}{end}')
+              if [ $? -ne 0 ] || [ -z "$routes" ]; then
+                echo "FAIL: VirtualService vs-rt-tsistioplain not found or has no http routes"
+                exit 1
+              fi
+              echo "$routes"
+
+              FAILED=0
+              # route names may be emitted as-is or prefixed with the resource name (<resource>-<route>)
+              check() {
+                r=$1; shift
+                line=$(echo "$routes" | awk -F'|' -v r="$r" '$1==r || $1 ~ ("-" r "$") {print; exit}')
+                if [ -z "$line" ]; then echo "FAIL: route $r not found"; FAILED=1; return; fi
+                for hw in "$@"; do
+                  case ",${line#*|}" in
+                    *",$hw,"*) echo "PASS: $r $hw" ;;
+                    *) echo "FAIL: $r expected $hw, got ${line#*|}"; FAILED=1 ;;
+                  esac
+                done
+              }
+              check route1 svc1=20 svc2=80
+              [ $FAILED -eq 0 ] || exit 1
+          timeout: 15m
+        - name: DeleteTrafficRoutingResources
+          id: DeleteTrafficRoutingResources
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/VirtualService/vs-rt-tsistioplain
+          timeout: 15m
+      rollback:
+        - name: RollbackDelete
+          id: RollbackDelete
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-310003
+          timeout: 15m
+        - name: RollbackDeleteResources
+          id: RollbackDeleteResources
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/VirtualService/vs-rt-tsistioplain
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m

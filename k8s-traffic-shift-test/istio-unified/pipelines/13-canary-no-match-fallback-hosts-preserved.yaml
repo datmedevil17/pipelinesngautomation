@@ -1,0 +1,366 @@
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    responseText:
+      type: string
+      value: v1
+    trafficGeneratorSleepTimer:
+      type: number
+      value: 1
+  stages:
+    - name: stage-no-match
+      id: stageNoMatch
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-nm
+      service:
+        type: kubernetes
+        items:
+          - tsistiomergenomatch
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup1
+          id: PreCleanup1
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-nonexistent
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-manifest
+          timeout: 15m
+        - name: CanaryDeployNoMatchFallback
+          id: CanaryDeployNoMatchFallback
+          deploy:
+            uses: k8sCanaryDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310013
+              skip_dry_run: false
+              unit_type: count
+              instances: "1"
+              traffic_shift: true
+              provider: istio
+              resource_name: ${{stage.inputs.resourceNamePrefix}}-vs-nonexistent
+              routes:
+                - type: http
+                  name: fallback-route
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 80
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 20
+          timeout: 15m
+        - name: Validate No Match Fallback Creates New VS
+          id: validateNoMatchFallback
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+              VS_TARGET_NAME="${PREFIX}-vs-nonexistent"
+              VS_MANIFEST_NAME="${PREFIX}-vs-manifest"
+
+              FAILED=0
+
+              echo "===== SCENARIO 1: No matching VS - fallback to creation ====="
+              VS_TARGET_JSON=$(kubectl get virtualservice/$VS_TARGET_NAME -n $NAMESPACE -o json 2>/dev/null)
+              if [ $? -eq 0 ] && [ -n "$VS_TARGET_JSON" ]; then
+                echo "PASS: New VirtualService $VS_TARGET_NAME was created (fallback from merge)"
+              else
+                echo "FAIL: VirtualService $VS_TARGET_NAME was NOT created - fallback did not work"
+                FAILED=1
+              fi
+
+              if [ -n "$VS_TARGET_JSON" ]; then
+                echo "$VS_TARGET_JSON"
+                echo "=========================================="
+
+                if echo "$VS_TARGET_JSON" | grep -q 'fallback-route'; then
+                  echo "PASS: step config route fallback-route present in new VS"
+                else
+                  echo "FAIL: step config route fallback-route missing in new VS"
+                  FAILED=1
+                fi
+
+                STAGE_COUNT=$(echo "$VS_TARGET_JSON" | grep -c "canary" || true)
+                if [ "$STAGE_COUNT" -ge 1 ]; then
+                  echo "PASS: canary destination present in new VS"
+                else
+                  echo "FAIL: canary destination missing in new VS"
+                  FAILED=1
+                fi
+
+                if echo "$VS_TARGET_JSON" | grep -q 'harness.io/release-name'; then
+                  echo "PASS: Harness release-name label present on new VS"
+                else
+                  echo "FAIL: Harness release-name label missing on new VS"
+                  FAILED=1
+                fi
+              fi
+
+              echo ""
+              echo "===== Verify original manifest VS is untouched ====="
+              VS_MANIFEST_JSON=$(kubectl get virtualservice/$VS_MANIFEST_NAME -n $NAMESPACE -o json 2>/dev/null)
+              if [ $? -eq 0 ] && [ -n "$VS_MANIFEST_JSON" ]; then
+                echo "PASS: Original manifest VS $VS_MANIFEST_NAME still exists"
+              else
+                echo "FAIL: Original manifest VS $VS_MANIFEST_NAME was deleted or missing"
+                FAILED=1
+              fi
+
+              if [ -n "$VS_MANIFEST_JSON" ]; then
+                if echo "$VS_MANIFEST_JSON" | grep -q '"x-original"'; then
+                  echo "PASS: original manifest VS header x-original preserved"
+                else
+                  echo "FAIL: original manifest VS header x-original missing"
+                  FAILED=1
+                fi
+                if echo "$VS_MANIFEST_JSON" | grep -q '"my-app.example.com"'; then
+                  echo "PASS: original manifest VS host my-app.example.com preserved"
+                else
+                  echo "FAIL: original manifest VS host my-app.example.com missing"
+                  FAILED=1
+                fi
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more no-match fallback validations FAILED"
+                exit 1
+              fi
+              echo "All no-match fallback validations PASSED"
+          timeout: 15m
+        - name: CanaryDeleteNoMatch
+          id: CanaryDeleteNoMatch
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: DeleteResourcesNoMatch
+          id: DeleteResourcesNoMatch
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-nonexistent
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-manifest
+          timeout: 15m
+      rollback:
+        - name: RollbackCanaryDeleteNoMatch
+          id: rollbackCanaryDeleteNoMatch
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: RollbackDeleteNoMatch
+          id: RollbackDeleteNoMatch
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-310013
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+    - name: stage-hosts-preserved
+      id: stageHostsPreserved
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-nm
+      service:
+        type: kubernetes
+        items:
+          - tsistiomergehosts
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup2
+          id: PreCleanup2
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-manifest
+          timeout: 15m
+        - name: CanaryDeployHostsPreserved
+          id: CanaryDeployHostsPreserved
+          deploy:
+            uses: k8sCanaryDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310013
+              skip_dry_run: false
+              unit_type: count
+              instances: "1"
+              traffic_shift: true
+              provider: istio
+              resource_name: ${{stage.inputs.resourceNamePrefix}}-vs-manifest
+              routes:
+                - type: http
+                  name: main-route
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 70
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 30
+          timeout: 15m
+        - name: Validate Hosts Preserved When Step Empty
+          id: validateHostsPreserved
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+              VS_MANIFEST_NAME="${PREFIX}-vs-manifest"
+
+              VS_JSON=$(kubectl get virtualservice/$VS_MANIFEST_NAME -n $NAMESPACE -o json)
+              echo "$VS_JSON"
+              echo "=========================================="
+
+              FAILED=0
+
+              echo "===== SCENARIO 2: Manifest hosts preserved when step config has no hosts ====="
+              if echo "$VS_JSON" | grep -q '"my-app.example.com"'; then
+                echo "PASS: spec.hosts retains my-app.example.com from manifest VS"
+              else
+                echo "FAIL: spec.hosts does NOT contain my-app.example.com - manifest hosts lost"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"customer-gateway"'; then
+                echo "PASS: spec.gateways retains customer-gateway from manifest VS"
+              else
+                echo "FAIL: spec.gateways does NOT contain customer-gateway - manifest gateways lost"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"x-original"'; then
+                echo "PASS: original header x-original preserved after merge"
+              else
+                echo "FAIL: original header x-original missing after merge"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"harness.io/managed"'; then
+                echo "PASS: Harness managed label present"
+              else
+                echo "FAIL: Harness managed label missing"
+                FAILED=1
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more hosts-preserved validations FAILED"
+                exit 1
+              fi
+              echo "All hosts-preserved validations PASSED"
+          timeout: 15m
+        - name: CanaryDeleteHostsPreserved
+          id: CanaryDeleteHostsPreserved
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: DeleteResourcesHostsPreserved
+          id: DeleteResourcesHostsPreserved
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-manifest
+          timeout: 15m
+      rollback:
+        - name: RollbackCanaryDeleteHostsPreserved
+          id: rollbackCanaryDeleteHostsPreserved
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: RollbackDeleteHostsPreserved
+          id: RollbackDeleteHostsPreserved
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-310013
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m

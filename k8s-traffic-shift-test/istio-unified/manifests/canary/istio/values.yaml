@@ -1,0 +1,2 @@
+name: ${{stage.inputs.resourceNamePrefix}}
+responseText: ${{pipeline.inputs.responseText}}

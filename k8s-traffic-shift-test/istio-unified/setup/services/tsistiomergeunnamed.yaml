@@ -1,0 +1,84 @@
+service:
+  name: tsistiomergeunnamed
+  identifier: tsistiomergeunnamed
+  orgIdentifier: organization_org_a818
+  projectIdentifier: project_proj_b28b
+  serviceDefinition:
+    type: Kubernetes
+    spec:
+      manifests:
+        - manifest:
+            identifier: m1
+            type: K8sManifest
+            spec:
+              store:
+                type: CustomRemote
+                spec:
+                  filePath: manifests/
+                  extractionScript: |-
+                    mkdir -p manifests
+                    cat <<'DEPLOYMENT' > manifests/deployment.yaml
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: {{.Values.name}}
+                    spec:
+                      replicas: 1
+                      selector:
+                        matchLabels:
+                          app: {{.Values.name}}
+                      template:
+                        metadata:
+                          labels:
+                            app: {{.Values.name}}
+                        spec:
+                          containers:
+                            - name: {{.Values.name}}
+                              image: {{.Values.image}}
+                              ports:
+                                - containerPort: 80
+                    DEPLOYMENT
+                    cat <<'SERVICE' > manifests/service.yaml
+                    apiVersion: v1
+                    kind: Service
+                    metadata:
+                      name: {{.Values.name}}-svc
+                    spec:
+                      selector:
+                        app: {{.Values.name}}
+                      ports:
+                        - port: 8080
+                          targetPort: 80
+                    SERVICE
+                    cat <<'VSUNNAMED' > manifests/vs-unnamed.yaml
+                    apiVersion: networking.istio.io/v1beta1
+                    kind: VirtualService
+                    metadata:
+                      name: {{.Values.name}}-vs-unnamed
+                      annotations:
+                        harness.io/direct-apply: "true"
+                    spec:
+                      hosts:
+                      - unnamed-app.example.com
+                      gateways:
+                      - unnamed-gateway
+                      http:
+                      - headers:
+                          request:
+                            set:
+                              x-debug: "true"
+                        route:
+                        - destination:
+                            host: {{.Values.name}}-svc
+                            port:
+                              number: 8080
+                          weight: 100
+                    VSUNNAMED
+                    cat <<'VALUES' > manifests/values.yaml
+                    name: ${{stage.inputs.resourceNamePrefix}}
+                    image: nginx:latest
+                    VALUES
+              skipResourceVersioning: false
+              valuesPaths:
+                - manifests/values.yaml
+  gitOpsEnabled: false

@@ -1,0 +1,272 @@
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    trafficGeneratorSleepTimer:
+      type: number
+      value: 1
+  stages:
+    - name: Deploy
+      id: stage1
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-roll
+      service:
+        type: kubernetes
+        items:
+          - tsistiorollcheck
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup
+          id: PreCleanup
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-traffic-generator
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-v1
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-v2
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-v1
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-v2
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-traffic-generator-svc
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiorollcheck
+          timeout: 15m
+        - name: K8sDeleteApps
+          id: K8sDeleteApps
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-traffic-generator
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-v1
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-v2
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-v1
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-v2
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-traffic-generator-svc
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiorollcheck
+          timeout: 15m
+          on-failure:
+            - action: success
+              errors:
+                - all
+        - name: DeployApps
+          id: DeployApps
+          deploy:
+            uses: k8sRollingDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310004
+              skip_dry_run: false
+              pruning: false
+          timeout: 15m
+        - name: config
+          id: K8sTrafficRoutingConfig
+          deploy:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: istio
+              resource_name: virtual-service-tsistiorollcheck
+              delegate_service: false
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310004
+              hosts:
+                - ${{stage.inputs.resourceNamePrefix}}-svc-v1
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-v1
+                      weight: 90
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-v2
+                      weight: 10
+          timeout: 15m
+        - name: verifyRouting
+          id: verifyRouting
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: sh
+            script: |
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              NAMESPACE="<+infra.namespace>"
+              CONTAINER_NAME="${{stage.inputs.resourceNamePrefix}}-traffic-generator"
+
+              sleep 90
+
+              POD_NAME=$(kubectl get pods -n $NAMESPACE | grep $CONTAINER_NAME | awk '{print $1}' | head -n 1)
+              if [ -z "$POD_NAME" ]; then
+                  echo "FAIL: traffic generator pod $CONTAINER_NAME not found"
+                  exit 1
+              fi
+
+              kubectl logs -n $NAMESPACE $POD_NAME $CONTAINER_NAME -f | awk '
+              /DONE_COOKING/ {
+                  getline;
+                  split($0, arr1, ": ");
+                  v1_count = arr1[2];
+                  getline;
+                  split($0, arr2, ": ");
+                  v2_count = arr2[2];
+                  print "V1_COUNT=" v1_count;
+                  print "V2_COUNT=" v2_count;
+                  exit;
+              }' > /tmp/temp_envs.sh
+
+              if [ -s /tmp/temp_envs.sh ]; then
+                  . /tmp/temp_envs.sh
+
+                  targetForV1=900
+                  targetForV2=100
+                  # v2 keeps a wider band: ~100 hits out of 1000 makes +-15% statistically flaky
+                  percentageV1=15
+                  percentageV2=30
+
+                  upper_bound_for_v1=$((targetForV1 + (targetForV1 * percentageV1 / 100)))
+                  lower_bound_for_v1=$((targetForV1 - (targetForV1 * percentageV1 / 100)))
+                  upper_bound_for_v2=$((targetForV2 + (targetForV2 * percentageV2 / 100)))
+                  lower_bound_for_v2=$((targetForV2 - (targetForV2 * percentageV2 / 100)))
+
+                  echo "Number of v1 responses: $V1_COUNT"
+                  echo "Number of v2 responses: $V2_COUNT"
+
+                  if [ "$V1_COUNT" -ge "$lower_bound_for_v1" ] && [ "$V1_COUNT" -le "$upper_bound_for_v1" ]; then
+                      echo "The value of $V1_COUNT is within acceptable range of $targetForV1."
+                  else
+                      echo "The value of $V1_COUNT is NOT within acceptable range of $targetForV1."
+                      exit 1
+                  fi
+
+                  if [ "$V2_COUNT" -ge "$lower_bound_for_v2" ] && [ "$V2_COUNT" -le "$upper_bound_for_v2" ]; then
+                      echo "The value of $V2_COUNT is within acceptable range of $targetForV2."
+                  else
+                      echo "The value of $V2_COUNT is NOT within acceptable range of $targetForV2."
+                      exit 1
+                  fi
+              else
+                  echo "No data extracted."
+                  exit 1
+              fi
+
+              rm /tmp/temp_envs.sh
+          timeout: 15m
+        - name: inherit
+          id: K8sTrafficRoutingInherit
+          deploy:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: istio
+              resource_name: virtual-service-tsistiorollcheck
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310004
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-v2
+                      weight: 100
+          timeout: 15m
+        - name: verifyPinnedWeights
+          id: verifyPinnedWeights
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: sh
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+
+              # After inheriting v2=100 route1 must be pinned to v2 (v1 weight 0 or omitted)
+              routes=$(kubectl get virtualservice virtual-service-tsistiorollcheck -n $NAMESPACE \
+                -o jsonpath='{range .spec.http[*]}{.name}{"|"}{range .route[*]}{.destination.host}{"="}{.weight}{","}{end}{"\n"}{end}')
+              if [ $? -ne 0 ] || [ -z "$routes" ]; then
+                echo "FAIL: VirtualService virtual-service-tsistiorollcheck not found or has no http routes"
+                exit 1
+              fi
+              echo "$routes"
+
+              # route names may be emitted as-is or prefixed with the resource name (<resource>-<route>)
+              line=$(echo "$routes" | awk -F'|' '$1=="route1" || $1 ~ /-route1$/ {print; exit}')
+              if [ -z "$line" ]; then
+                echo "FAIL: route1 not found"
+                exit 1
+              fi
+              WEIGHTS=$(echo "${line#*|}" | tr ',' '\n')
+
+              V1_WEIGHT=$(echo "$WEIGHTS" | grep "^$PREFIX-svc-v1=" | cut -d= -f2)
+              V2_WEIGHT=$(echo "$WEIGHTS" | grep "^$PREFIX-svc-v2=" | cut -d= -f2)
+              # a sole destination may be written without an explicit weight (implies 100)
+              if [ -z "$V2_WEIGHT" ] && [ -z "$V1_WEIGHT" ] && echo "$WEIGHTS" | grep -q "^$PREFIX-svc-v2="; then
+                V2_WEIGHT=100
+              fi
+
+              if [ "${V1_WEIGHT:-0}" -eq 0 ] && [ "${V2_WEIGHT:-0}" -eq 100 ]; then
+                echo "Route is pinned to v2 (v1=${V1_WEIGHT:-0}, v2=${V2_WEIGHT})."
+              else
+                echo "Route is NOT pinned to v2 (v1=${V1_WEIGHT:-0}, v2=${V2_WEIGHT:-0})."
+                exit 1
+              fi
+          timeout: 15m
+        - name: K8sDeleteAppsClean
+          id: K8sDeleteAppsClean
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-traffic-generator
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-v1
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-v2
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-v1
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-v2
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-traffic-generator-svc
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiorollcheck
+          timeout: 15m
+      rollback:
+        - name: RollbackDeleteApps
+          id: RollbackDeleteApps
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-traffic-generator
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-v1
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-v2
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-v1
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-v2
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-traffic-generator-svc
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiorollcheck
+          timeout: 15m
+      on-failure:
+        - action:
+            retry:
+              attempts: 2
+              interval: 20s
+              failure-action: stage-rollback
+          errors:
+            - all
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m

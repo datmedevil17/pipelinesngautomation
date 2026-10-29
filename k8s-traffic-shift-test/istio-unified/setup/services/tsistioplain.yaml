@@ -1,0 +1,8 @@
+service:
+  name: tsistioplain
+  identifier: tsistioplain
+  orgIdentifier: organization_org_a818
+  projectIdentifier: project_proj_b28b
+  serviceDefinition:
+    type: Kubernetes
+    spec: {}

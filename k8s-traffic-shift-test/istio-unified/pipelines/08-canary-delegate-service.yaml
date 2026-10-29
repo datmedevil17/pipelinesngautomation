@@ -1,0 +1,177 @@
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    responseText:
+      type: string
+      value: v1
+  stages:
+    - name: Deploy
+      id: stage1
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-cands
+      service:
+        type: kubernetes
+        items:
+          - tsistiocanarycheck
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup
+          id: PreCleanup
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiocanarycheck
+          timeout: 15m
+        - name: CanaryDeployment
+          id: CanaryDeployment
+          deploy:
+            uses: k8sCanaryDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310008
+              skip_dry_run: false
+              unit_type: count
+              instances: "1"
+              traffic_shift: true
+              provider: istio
+              resource_name: virtual-service-tsistiocanarycheck
+              delegate_service: true
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 90
+                      port: 80
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 10
+                      port: 80
+          timeout: 15m
+        - name: validate VirtualService
+          id: verifyVirtualService
+          if: <+OnStageSuccess>
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+
+              if ! kubectl get virtualservice/virtual-service-tsistiocanarycheck -n $NAMESPACE -o yaml; then
+                echo "FAIL: VirtualService virtual-service-tsistiocanarycheck not found"
+                exit 1
+              fi
+              echo "------------------------------------------"
+
+              FAILED=0
+
+              HOSTS=$(kubectl get virtualservice/virtual-service-tsistiocanarycheck -n $NAMESPACE -o jsonpath='{.spec.hosts[*]}')
+              if [ -z "$HOSTS" ]; then
+                echo "PASS: spec.hosts is empty"
+              else
+                echo "FAIL: spec.hosts is not empty: $HOSTS"
+                FAILED=1
+              fi
+
+              PORTS=$(kubectl get virtualservice/virtual-service-tsistiocanarycheck -n $NAMESPACE -o jsonpath='{range .spec.http[*].route[*]}{.destination.port.number}{"\n"}{end}')
+              echo "destination ports: $PORTS"
+              if echo "$PORTS" | grep -q "^80$"; then
+                echo "PASS: destination port number is 80"
+              else
+                echo "FAIL: destination port number 80 not found"
+                FAILED=1
+              fi
+
+              routes=$(kubectl get virtualservice/virtual-service-tsistiocanarycheck -n $NAMESPACE -o jsonpath='{range .spec.http[*]}{.name}{"|"}{range .route[*]}{.destination.host}{"="}{.weight}{","}{end}{"\n"}{end}')
+              echo "$routes"
+              line=$(echo "$routes" | awk -F'|' '$1=="route1" || $1 ~ /-route1$/ {print; exit}')
+              if [ -z "$line" ]; then
+                echo "FAIL: route1 not found"
+                FAILED=1
+              else
+                for hw in "${PREFIX}-svc=90" "${PREFIX}-svc-canary=10"; do
+                  case ",${line#*|}" in
+                    *",$hw,"*) echo "PASS: route1 $hw" ;;
+                    *) echo "FAIL: route1 expected $hw, got ${line#*|}"; FAILED=1 ;;
+                  esac
+                done
+              fi
+
+              [ $FAILED -eq 0 ] || exit 1
+          timeout: 15m
+        - name: CanaryDelete
+          id: CanaryDelete
+          if: <+OnStageSuccess>
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: DeleteApps
+          id: DeleteApps
+          if: <+OnStageSuccess>
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiocanarycheck
+          timeout: 15m
+      rollback:
+        - name: RollbackDelete
+          id: RollbackDelete
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-310008
+          timeout: 15m
+        - name: RollbackDeleteApps
+          id: RollbackDeleteApps
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiocanarycheck
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m

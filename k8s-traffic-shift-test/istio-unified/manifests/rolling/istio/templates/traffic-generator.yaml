@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Values.name}}-traffic-generator
+  labels:
+    app: {{.Values.name}}-traffic-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{.Values.name}}-traffic-generator
+  template:
+    metadata:
+      labels:
+        app: {{.Values.name}}-traffic-generator
+      annotations:
+        proxy.istio.io/config: '{ "holdApplicationUntilProxyStarts": true }'
+    spec:
+      containers:
+        - name: {{.Values.name}}-traffic-generator
+          image: curlimages/curl:8.10.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # The verify step reads the two lines after DONE_COOKING as "<label>: <count>".
+              sleep 120
+              v1=0; v2=0; i=0
+              while [ $i -lt 1000 ]; do
+                r=$(curl -s --max-time 2 http://{{.Values.name}}-svc-v1/)
+                case "$r" in
+                  v1*) v1=$((v1+1)) ;;
+                  v2*) v2=$((v2+1)) ;;
+                esac
+                i=$((i+1))
+              done
+              echo DONE_COOKING
+              echo "v1: $v1"
+              echo "v2: $v2"
+              while true; do sleep 3600; done
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Values.name}}-traffic-generator-svc
+spec:
+  selector:
+    app: {{.Values.name}}-traffic-generator
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

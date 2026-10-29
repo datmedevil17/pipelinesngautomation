@@ -1,0 +1,568 @@
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    responseText:
+      type: string
+      value: v1
+    trafficGeneratorSleepTimer:
+      type: number
+      value: 1
+  stages:
+    - name: stage-unnamed
+      id: stageUnnamed
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-c3
+      service:
+        type: kubernetes
+        items:
+          - tsistiomergeunnamed
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup1
+          id: PreCleanup1
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-unnamed
+          timeout: 15m
+        - name: CanaryDeployment
+          id: CanaryDeployment
+          deploy:
+            uses: k8sCanaryDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310012
+              skip_dry_run: false
+              unit_type: count
+              instances: "1"
+              traffic_shift: true
+              provider: istio
+              resource_name: ${{stage.inputs.resourceNamePrefix}}-vs-unnamed
+              routes:
+                - type: http
+                  name: canary-route
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 80
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 20
+          timeout: 15m
+        - name: Validate Unnamed Route Shortcut Merge
+          id: validateUnnamedRouteShortcutMerge
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+              VS_NAME="${PREFIX}-vs-unnamed"
+
+              VS_JSON=$(kubectl get virtualservice/$VS_NAME -n $NAMESPACE -o json)
+              echo "$VS_JSON"
+              echo "=========================================="
+
+              FAILED=0
+
+              echo "===== SCENARIO 1: Config step merge - single unnamed route shortcut ====="
+              if echo "$VS_JSON" | grep -q '"x-debug"'; then
+                echo "PASS: manifest unnamed route header x-debug preserved"
+              else
+                echo "FAIL: manifest unnamed route header x-debug missing"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"true"' && echo "$VS_JSON" | grep -q '"x-debug"'; then
+                echo "PASS: x-debug header value 'true' preserved"
+              else
+                echo "FAIL: x-debug header value missing"
+                FAILED=1
+              fi
+
+              STAGE_HOST_COUNT=$(echo "$VS_JSON" | grep -c "canary" || true)
+              if [ "$STAGE_HOST_COUNT" -ge 1 ]; then
+                echo "PASS: canary destination present from step config"
+              else
+                echo "FAIL: canary destination missing - shortcut merge did not apply step route"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"harness.io/managed"'; then
+                echo "PASS: Harness managed label present"
+              else
+                echo "FAIL: Harness managed label missing"
+                FAILED=1
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more unnamed route shortcut validations FAILED"
+                exit 1
+              fi
+              echo "All unnamed route shortcut merge validations PASSED"
+          timeout: 15m
+        - name: Inherit Unnamed Route Weight Shift
+          id: K8sTrafficRoutingInheritUnnamed
+          deploy:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: istio
+              resource_name: ${{stage.inputs.resourceNamePrefix}}-vs-unnamed
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310012
+              routes:
+                - type: http
+                  name: canary-route
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 50
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 50
+          timeout: 15m
+        - name: Validate Inherit Unnamed Route Weight Shift
+          id: validateInheritUnnamedRouteWeightShift
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+              VS_NAME="${PREFIX}-vs-unnamed"
+
+              VS_JSON=$(kubectl get virtualservice/$VS_NAME -n $NAMESPACE -o json)
+              echo "$VS_JSON"
+              echo "=========================================="
+
+              FAILED=0
+
+              echo "===== SCENARIO 2: Inherit step - unnamed route shortcut weight shift 50/50 ====="
+              WEIGHT_50_COUNT=$(echo "$VS_JSON" | grep -c '"weight": 50' || true)
+              if [ "$WEIGHT_50_COUNT" -ge 2 ]; then
+                echo "PASS: weights shifted to 50/50 after inherit step"
+              else
+                echo "FAIL: weights not 50/50 after inherit step (count of weight 50: $WEIGHT_50_COUNT)"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"x-debug"'; then
+                echo "PASS: manifest header x-debug still preserved after inherit"
+              else
+                echo "FAIL: manifest header x-debug lost after inherit"
+                FAILED=1
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more inherit unnamed route weight shift validations FAILED"
+                exit 1
+              fi
+              echo "All inherit unnamed route weight shift validations PASSED"
+          timeout: 15m
+        - name: CanaryDeleteUnnamed
+          id: CanaryDeleteUnnamed
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: DeleteResourcesUnnamed
+          id: DeleteResourcesUnnamed
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-unnamed
+          timeout: 15m
+      rollback:
+        - name: RollbackCanaryDeleteUnnamed
+          id: rollbackCanaryDeleteUnnamed
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: RollbackDeleteUnnamed
+          id: RollbackDeleteUnnamed
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-310012
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+    - name: stage-named
+      id: stageNamed
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-c3
+      service:
+        type: kubernetes
+        items:
+          - tsistiomergenamed
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup2
+          id: PreCleanup2
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-named
+          timeout: 15m
+        - name: CanaryDeploymentNamedRoute
+          id: CanaryDeploymentNamedRoute
+          deploy:
+            uses: k8sCanaryDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310012
+              skip_dry_run: false
+              unit_type: count
+              instances: "1"
+              traffic_shift: true
+              provider: istio
+              resource_name: ${{stage.inputs.resourceNamePrefix}}-vs-named
+              routes:
+                - type: http
+                  name: different-route
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 70
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 30
+          timeout: 15m
+        - name: Validate Named Route No Shortcut Merge
+          id: validateNamedRouteNoShortcutMerge
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+              VS_NAME="${PREFIX}-vs-named"
+
+              VS_JSON=$(kubectl get virtualservice/$VS_NAME -n $NAMESPACE -o json)
+              echo "$VS_JSON"
+              echo "=========================================="
+
+              FAILED=0
+
+              echo "===== SCENARIO 3: Config step merge - single named route, no shortcut (different names) ====="
+              if echo "$VS_JSON" | grep -q '"customer-route"'; then
+                echo "PASS: original named route customer-route preserved"
+              else
+                echo "FAIL: original named route customer-route missing"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q 'different-route'; then
+                echo "PASS: step route different-route appended alongside original"
+              else
+                echo "FAIL: step route different-route not found - should have been appended"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"x-customer"'; then
+                echo "PASS: original route header x-customer preserved"
+              else
+                echo "FAIL: original route header x-customer missing"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"harness.io/managed"'; then
+                echo "PASS: Harness managed label present"
+              else
+                echo "FAIL: Harness managed label missing"
+                FAILED=1
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more named route no-shortcut merge validations FAILED"
+                exit 1
+              fi
+              echo "All named route no-shortcut merge validations PASSED"
+          timeout: 15m
+        - name: CanaryDeleteNamed
+          id: CanaryDeleteNamed
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: DeleteResourcesNamed
+          id: DeleteResourcesNamed
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-named
+          timeout: 15m
+      rollback:
+        - name: RollbackCanaryDeleteNamed
+          id: rollbackCanaryDeleteNamed
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: RollbackDeleteNamed
+          id: RollbackDeleteNamed
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-310012
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m
+    - name: stage-tcp
+      id: stageTcp
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-c3
+      service:
+        type: kubernetes
+        items:
+          - tsistiomergetcp
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup3
+          id: PreCleanup3
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-tcp
+          timeout: 15m
+        - name: CanaryDeploymentTCPOnly
+          id: CanaryDeploymentTCPOnly
+          deploy:
+            uses: k8sCanaryDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310012
+              skip_dry_run: false
+              unit_type: count
+              instances: "1"
+              traffic_shift: true
+              provider: istio
+              resource_name: ${{stage.inputs.resourceNamePrefix}}-vs-tcp
+              routes:
+                - type: http
+                  name: tcp-http-route
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 80
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
+                      weight: 20
+          timeout: 15m
+        - name: Validate TCP Only VS Merge
+          id: validateTCPOnlyVSMerge
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+              PREFIX="${{stage.inputs.resourceNamePrefix}}"
+              VS_NAME="${PREFIX}-vs-tcp"
+
+              VS_JSON=$(kubectl get virtualservice/$VS_NAME -n $NAMESPACE -o json)
+              echo "$VS_JSON"
+              echo "=========================================="
+
+              FAILED=0
+
+              echo "===== SCENARIO 4: Config step merge - TCP-only VS, HTTP routes appended ====="
+              if echo "$VS_JSON" | grep -q '"tcp":'; then
+                echo "PASS: original TCP section preserved"
+              else
+                echo "FAIL: original TCP section missing"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"3306"' || echo "$VS_JSON" | grep -q ': 3306'; then
+                echo "PASS: original TCP port 3306 preserved"
+              else
+                echo "FAIL: original TCP port 3306 missing"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"http":'; then
+                echo "PASS: HTTP section appended from step config"
+              else
+                echo "FAIL: HTTP section not found - step routes were not appended"
+                FAILED=1
+              fi
+
+              STAGE_HOST_COUNT=$(echo "$VS_JSON" | grep -c "canary" || true)
+              if [ "$STAGE_HOST_COUNT" -ge 1 ]; then
+                echo "PASS: canary destination present in appended HTTP routes"
+              else
+                echo "FAIL: canary destination missing in appended HTTP routes"
+                FAILED=1
+              fi
+
+              if echo "$VS_JSON" | grep -q '"harness.io/managed"'; then
+                echo "PASS: Harness managed label present"
+              else
+                echo "FAIL: Harness managed label missing"
+                FAILED=1
+              fi
+
+              if [ $FAILED -ne 0 ]; then
+                echo "One or more TCP-only VS merge validations FAILED"
+                exit 1
+              fi
+              echo "All TCP-only VS merge validations PASSED"
+          timeout: 15m
+        - name: CanaryDeleteTcp
+          id: CanaryDeleteTcp
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: DeleteResourcesTcp
+          id: DeleteResourcesTcp
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+                - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-tcp
+          timeout: 15m
+      rollback:
+        - name: RollbackCanaryDeleteTcp
+          id: rollbackCanaryDeleteTcp
+          deploy:
+            uses: k8sCanaryDeleteStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
+          timeout: 15m
+        - name: RollbackDeleteTcp
+          id: RollbackDeleteTcp
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: release_name
+              release: releasename-310012
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m

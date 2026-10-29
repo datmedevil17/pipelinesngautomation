@@ -1,0 +1,143 @@
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    responseText:
+      type: string
+      value: v1
+  stages:
+    - name: Deploy
+      id: stage1
+      inputs:
+        resourceNamePrefix:
+          type: string
+          value: tsistio-bgds
+      service:
+        type: kubernetes
+        items:
+          - tsistiobgcheck
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      steps:
+        - name: PreCleanup
+          id: PreCleanup
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-blue
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-green
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-stage
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiobgcheck
+          timeout: 15m
+        - name: BlueGreenDeployment
+          id: BlueGreenDeployment
+          deploy:
+            uses: k8sBlueGreenDeployStep
+            with:
+              kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+              namespace: <+infra.namespace>
+              release: releasename-310007
+              skip_dry_run: false
+              pruning: false
+              skip_unchanged_manifest: false
+              traffic_shift: true
+              provider: istio
+              resource_name: virtual-service-tsistiobgcheck
+              delegate_service: true
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc
+                      weight: 90
+                      port: 80
+                    - host: ${{stage.inputs.resourceNamePrefix}}-svc-stage
+                      weight: 10
+                      port: 80
+          timeout: 15m
+        - name: validate Hosts
+          id: check
+          if: <+OnStageSuccess>
+          run:
+            container:
+              image: bitnami/kubectl
+              connector: account.harnessImage
+              pull: if-not-exists
+            shell: bash
+            output:
+              - name: verifyRouting
+                type: String
+                value: isNotNewDeployment
+            script: |-
+              export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+              NAMESPACE="<+infra.namespace>"
+
+              if ! kubectl get virtualservice/virtual-service-tsistiobgcheck -n $NAMESPACE -o yaml; then
+                echo "FAIL: VirtualService virtual-service-tsistiobgcheck not found"
+                exit 1
+              fi
+              echo "------------------------------------------"
+
+              HOSTS=$(kubectl get virtualservice/virtual-service-tsistiobgcheck -n $NAMESPACE -o jsonpath='{.spec.hosts[*]}')
+              if [[ -z "$HOSTS" ]]; then
+                echo "PASS: spec.hosts is empty"
+              else
+                echo "FAIL: spec.hosts is not empty: $HOSTS"
+                exit 1
+              fi
+
+              PORTS=$(kubectl get virtualservice/virtual-service-tsistiobgcheck -n $NAMESPACE -o jsonpath='{range .spec.http[*].route[*]}{.destination.port.number}{"\n"}{end}')
+              echo "destination ports: $PORTS"
+              if echo "$PORTS" | grep -q "^80$"; then
+                echo "PASS: destination port number is 80"
+              else
+                echo "FAIL: destination port number 80 not found"
+                exit 1
+              fi
+
+              # the step output "verifyRouting" is read from a shell variable of the same name
+              verifyRouting=$isNotNewDeployment
+          timeout: 15m
+        - name: DeleteApps
+          id: DeleteApps
+          if: <+OnStageSuccess>
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-blue
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-green
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-stage
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiobgcheck
+          timeout: 15m
+      rollback:
+        - name: RollbackDeleteApps
+          id: RollbackDeleteApps
+          deploy:
+            uses: k8sDeleteStep
+            with:
+              select_delete_resources: resources
+              resources:
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-blue
+                - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-green
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+                - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-stage
+                - <+infra.namespace>/VirtualService/virtual-service-tsistiobgcheck
+          timeout: 15m
+      on-failure:
+        errors: all
+        action: stage-rollback
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+          automount-service-token: true
+          pull: always
+      timeout: 15m
