@@ -54,4 +54,6 @@ and the v2 run checks the 90/10 split (900/100 hits out of 1000).
   sending traffic.
 - I added a `responseText` input to 08, because its canary manifests render
   `${{pipeline.inputs.responseText}}`.
+- The run-step `output` entries keep only `name`. The local v1 schema (`output-ng-variable.yaml`)
+  rejects Automation's `type`/`value` keys, and the script already sets the `verifyRouting` shell var.
 - `org.DockerConnectorForAutomationTest` is replaced with `account.harnessImage` in the bootstrap.

@@ -105,8 +105,6 @@ pipeline:
             shell: bash
             output:
               - name: verifyRouting
-                type: String
-                value: isNotNewDeployment
             script: |-
               export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
 
