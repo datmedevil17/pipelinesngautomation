@@ -1,0 +1,31 @@
+# This run shows: with service and environment on-failure set, Rendering, Templating and Resource lock still run normally.
+pipeline:
+  stages:
+    - name: happy-path
+      id: happy_path
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action: abort
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+        on-failure:
+          - errors: [all]
+            action: abort

@@ -1,0 +1,36 @@
+# This run shows: environment stage-rollback - an invalid environment triggers the stage's rollback steps (Undo prints ROLLBACK_RAN).
+pipeline:
+  stages:
+    - name: env-stage-rollback
+      id: env_stage_rollback
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+      environment:
+        items:
+          - id: INVALID_ENV_ID
+            deploy-to: infrastructure_kubernetes_5a5e
+        on-failure:
+          - errors: [all]
+            action: stage-rollback
+      rollback:
+        - name: Undo
+          id: Undo
+          run:
+            script: echo ROLLBACK_RAN
+            container:
+              image: alpine
+              connector: test_127344_docker

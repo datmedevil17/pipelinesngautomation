@@ -1,0 +1,17 @@
+# Unified-native service: helm chart from helm_repo_a (broken). Override stays an NG HelmRepoOverride -> helm_repo_b.
+service:
+  uses: helm
+  with:
+    manifests:
+      sources:
+        - id: myChart
+          uses: helm-chart
+          with:
+            store:
+              uses: http
+              with:
+                connector: helm_repo_a
+            chart-name: hello-world
+            chart-version: 0.1.0
+            skip-version: false
+            declarative-rollback: false

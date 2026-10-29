@@ -1,0 +1,12 @@
+overrides:
+  manifests:
+    - manifest:
+        identifier: m1
+        type: HelmRepoOverride
+        spec:
+          connectorRef: helm_repo_b
+          type: Http
+  variables:
+    - name: region
+      type: String
+      value: us-east-1

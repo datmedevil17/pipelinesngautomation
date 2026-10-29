@@ -1,0 +1,25 @@
+pipeline:
+  clone:
+    disabled: true
+  stages:
+    - name: CDS-130657 pu-unified-service
+      id: cds130657
+      service: <UNIFIED_SERVICE_ID>
+      environment:
+        id: environment_env_33fe
+        deploy-to: infrastructure_kubernetes_6357
+      steps:
+        - name: Render
+          id: helmrender
+          template:
+            uses: k8sHelmTemplateAction
+            with:
+              output: /harness/rendered-helm.yaml
+              print_manifest: true
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: connector_K8sCluster_local
+          automount-service-token: true
+          pull: always
+      timeout: 15m

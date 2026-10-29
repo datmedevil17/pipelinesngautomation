@@ -1,0 +1,30 @@
+# This run shows: multi-service isolation - two services in parallel, the invalid one fails alone and the valid one deploys.
+pipeline:
+  stages:
+    - name: multi-svc-isolation
+      id: multi_svc_isolation
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        parallel: true
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action: fail
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

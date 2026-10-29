@@ -1,0 +1,61 @@
+# This run shows: a failure inside the rollback's own Infrastructure step - fs_check_infra is deleted while stage 2 runs, then pipeline-rollback re-resolves it for stage 1.
+pipeline:
+  stages:
+    - name: deploy-first
+      id: deploy_first
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+      environment:
+        items:
+          - id: fs_check_env
+            deploy-to: fs_check_infra
+        on-failure:
+          - errors: [all]
+            action: abort
+      rollback:
+        - name: Undo
+          id: Undo
+          run:
+            script: echo ROLLBACK_RAN
+            container:
+              image: alpine
+              connector: test_127344_docker
+    - name: deploy-second
+      id: deploy_second
+      steps:
+        - name: Wait then fail
+          id: Wait_then_fail
+          run:
+            script: sleep 90; exit 1
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      on-failure:
+        - errors: [all]
+          action: pipeline-rollback

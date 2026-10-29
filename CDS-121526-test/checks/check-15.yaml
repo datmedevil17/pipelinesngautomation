@@ -1,0 +1,34 @@
+# This run shows: service.on-failure fail together with multi-deployment run-all; the invalid service is marked failed and the deployment after it still runs.
+pipeline:
+  stages:
+    - name: md-service-fail-run-all
+      id: md_service_fail_run_all
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying <+service.identifier>
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      multi-deployment:
+        on-failure: run-all
+        max-concurrency: 1
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - INVALID_SERVICE_ID
+          - service_kubernetes_bg_traffic_shift
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action: fail
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

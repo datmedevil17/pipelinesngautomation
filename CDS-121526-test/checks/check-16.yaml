@@ -1,0 +1,53 @@
+# This run shows: a step-level `if` is evaluated per deployment (service x environment), so <+service.identifier> and <+env.type> resolve inside it.
+pipeline:
+  stages:
+    - name: step-level-if
+      id: step_level_if
+      steps:
+        - name: Show env type
+          id: Show_env_type
+          run:
+            script: echo "service=<+service.identifier> envType=<+env.type>"
+            container:
+              image: alpine
+              connector: test_127344_docker
+        - name: Only first service
+          id: Only_first_service
+          if: <+service.identifier> == "service_kubernetes_k8s_shift_repro"
+          run:
+            script: echo "runs only for k8s_shift_repro"
+            container:
+              image: alpine
+              connector: test_127344_docker
+        - name: Env type is Dev
+          id: Env_type_is_Dev
+          if: <+env.type> == "Dev"
+          run:
+            script: echo "env type is Dev"
+            container:
+              image: alpine
+              connector: test_127344_docker
+        - name: Env type is not Dev
+          id: Env_type_is_not_Dev
+          if: <+env.type> != "Dev"
+          run:
+            script: echo "env type is not Dev"
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      multi-deployment:
+        on-failure: run-all
+        max-concurrency: 1
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - service_kubernetes_bg_traffic_shift
+        type: kubernetes
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

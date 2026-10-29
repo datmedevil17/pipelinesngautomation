@@ -1,0 +1,28 @@
+# This run shows: valid environment but missing infrastructure in the main run - does environment.on-failure (abort) apply, or does Initialize fail first?
+pipeline:
+  stages:
+    - name: valid-env-bad-infra
+      id: valid_env_bad_infra
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: INVALID_INFRA_ID
+        on-failure:
+          - errors: [all]
+            action: abort

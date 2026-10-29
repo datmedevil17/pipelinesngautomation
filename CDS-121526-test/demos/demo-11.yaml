@@ -1,0 +1,28 @@
+# This run shows: validation - stage-rollback is not allowed on a service, so the run is rejected at start with the NG error message.
+pipeline:
+  stages:
+    - name: invalid-action
+      id: invalid_action
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action: stage-rollback
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

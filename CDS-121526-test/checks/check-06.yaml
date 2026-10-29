@@ -1,0 +1,34 @@
+# This run shows: a failing user step under steps: is not caught by service/environment on-failure (abort); the stage rule (ignore) handles it.
+pipeline:
+  stages:
+    - name: user-step-fails
+      id: user_step_fails
+      steps:
+        - name: Fail
+          id: Fail
+          run:
+            script: echo USER_STEP_FAILING; exit 1
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action: abort
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+        on-failure:
+          - errors: [all]
+            action: abort
+      on-failure:
+        - errors: [all]
+          action: ignore

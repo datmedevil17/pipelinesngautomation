@@ -1,0 +1,24 @@
+service:
+  name: svc_oci_a
+  identifier: svc_oci_a
+  serviceDefinition:
+    type: NativeHelm
+    spec:
+      manifests:
+        - manifest:
+            identifier: myChart
+            type: HelmChart
+            spec:
+              store:
+                type: OciHelmChart
+                spec:
+                  config:
+                    type: Generic
+                    spec:
+                      connectorRef: helm_oci_a
+                  basePath: charts
+              chartName: hello-world
+              chartVersion: 0.1.0
+              helmVersion: V3
+              skipResourceVersioning: false
+  gitOpsEnabled: false

@@ -1,0 +1,30 @@
+pipeline:
+  stages:
+    - name: T3-happy-path
+      id: ID_T3_happy_path
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action: abort
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+        on-failure:
+          - errors: [all]
+            action: abort

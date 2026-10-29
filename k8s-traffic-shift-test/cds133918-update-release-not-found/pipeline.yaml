@@ -1,1 +1,94 @@
- 
+# CDS-133918 -- k8sTrafficRoutingStep config_type: update logged
+# "Release [..] was not found in history. Skipping traffic shift resource update."
+# and reported Success without patching the HTTPRoute.
+#
+# Fix is in harnessdev/k8s-traffic-shift:0.0.3
+#   BEFORE fix (<=0.0.2): trUpdate green + warning in log, curl returns v1 -> verify RED
+#   AFTER  fix (0.0.3):   trUpdate patches route,            curl returns v2 -> verify GREEN
+#   (if release lookup still breaks, 0.0.3 should make trUpdate itself fail RED, not skip)
+#
+# NEEDS: Gateway API CRDs + a Gateway named trafficshift-gateway in the namespace,
+# service with manifests/v1 + manifests/v2 (see ./manifests), K8s Direct infra.
+# Fill every <YOUR_...>.
+
+pipeline:
+  clone:
+    disabled: true
+
+  stages:
+    - name: CDS-133918 update release lookup
+      id: cds133918
+      service: <YOUR_SERVICE_ID>
+      environment:
+        id: <YOUR_ENV_ID>
+        deploy-to: <YOUR_INFRA_ID>
+      steps:
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+            with:
+              release: releasename-658238
+
+        - name: Traffic Routing New
+          id: trNew
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: new
+              provider: k8s-native
+              release: releasename-658238
+              resource_name: cds133918-trafficshift-route
+              hosts:
+                - cds133918-trafficshift
+              gateways:
+                - trafficshift-gateway
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 100
+                    - host: trafficshift-v2
+                      weight: 0
+
+        - name: Traffic Routing Update
+          id: trUpdate
+          template:
+            uses: k8sTrafficRoutingStep
+            with:
+              config_type: update
+              provider: k8s-native
+              release: releasename-658238
+              resource_name: cds133918-trafficshift-route
+              routes:
+                - type: http
+                  name: route1
+                  destinations:
+                    - host: trafficshift-v1
+                      weight: 0
+                    - host: trafficshift-v2
+                      weight: 100
+
+        - name: Verify v2
+          id: verify
+          run:
+            container:
+              image: curlimages/curl
+            shell: sh
+            script: |-
+              for i in $(seq 1 12); do
+                out=$(curl -s -H "Host: cds133918-trafficshift" http://<YOUR_GATEWAY_ADDR>/)
+                echo "attempt $i: $out"
+                echo "$out" | grep -qi v2 && exit 0
+                sleep 5
+              done
+              echo "never saw v2 -> update was skipped"; exit 1
+
+      runtime:
+        kubernetes:
+          namespace: <YOUR_GATEWAY_NAMESPACE>
+          connector: <YOUR_K8S_CONNECTOR>
+          automount-service-token: true
+          pull: always
+      timeout: 15m

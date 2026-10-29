@@ -1,0 +1,39 @@
+# This run shows: the service rule beats the stage rule - service abort fires, so the stage-rollback (Undo step) never runs.
+pipeline:
+  stages:
+    - name: svc-overrides-stage
+      id: svc_overrides_stage
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action: abort
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      on-failure:
+        - errors: [all]
+          action: stage-rollback
+      rollback:
+        - name: Undo
+          id: Undo
+          run:
+            script: echo ROLLBACK_RAN
+            container:
+              image: alpine
+              connector: test_127344_docker

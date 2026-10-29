@@ -1,0 +1,31 @@
+# This run shows: multi-environment isolation - two environments in parallel, the invalid one fails alone and the valid one deploys.
+pipeline:
+  stages:
+    - name: multi-env-isolation
+      id: multi_env_isolation
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+      environment:
+        parallel: true
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+          - id: INVALID_ENV_ID
+            deploy-to: infrastructure_kubernetes_5a5e
+        on-failure:
+          - errors: [all]
+            action: fail

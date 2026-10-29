@@ -1,0 +1,28 @@
+# This run shows: a stage-level action that is not allowed on a service (ignore) - is it applied or skipped when the service fails?
+pipeline:
+  stages:
+    - name: inherited-ignore
+      id: inherited_ignore
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - INVALID_SERVICE_ID
+        type: kubernetes
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      on-failure:
+        - errors: [all]
+          action: ignore

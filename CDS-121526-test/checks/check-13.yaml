@@ -1,0 +1,36 @@
+# This run shows: environment.on-failure next to group applies to the whole environment group; the abort rule wins over the stage ignore rule on the failing Infrastructure node.
+pipeline:
+  stages:
+    - name: env-group-on-failure
+      id: env_group_on_failure
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying <+env.identifier>
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+      environment:
+        group:
+          id: fs_check_group
+          parallel: true
+          items:
+            - id: environment_env_2a02
+              deploy-to: infrastructure_kubernetes_5a5e
+            - id: environment_env_f4a4
+              deploy-to: INVALID_INFRA_ID
+        on-failure:
+          - errors: [all]
+            action: abort
+      on-failure:
+        - errors: [all]
+          action: ignore

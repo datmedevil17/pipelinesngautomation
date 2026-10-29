@@ -1,0 +1,30 @@
+# This run shows: max-concurrency 2 with run-all runs both service deployments at the same time (parallel: true is needed, max-concurrency only caps it).
+pipeline:
+  stages:
+    - name: md-conc2-run-all
+      id: md_conc2_run_all
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo START <+service.identifier> $(date +%T); sleep 25; echo END <+service.identifier> $(date +%T)
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      multi-deployment:
+        on-failure: run-all
+        max-concurrency: 2
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - service_kubernetes_bg_traffic_shift
+        type: kubernetes
+        parallel: true
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

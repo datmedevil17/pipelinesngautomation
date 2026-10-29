@@ -1,0 +1,32 @@
+# This run shows: service retry - an invalid service is retried 3 times (10s apart), then the failure-action aborts the stage.
+pipeline:
+  stages:
+    - name: svc-retry
+      id: svc_retry
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action:
+              retry:
+                attempts: 3
+                interval: 10s
+                failure-action: abort
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

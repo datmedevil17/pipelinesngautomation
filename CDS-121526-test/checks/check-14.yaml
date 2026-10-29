@@ -1,0 +1,33 @@
+# This run shows: without an environment rule, the stage ignore rule is applied on the failing Infrastructure node of an environment group.
+pipeline:
+  stages:
+    - name: env-group-no-env-rule
+      id: env_group_no_env_rule
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying <+env.identifier>
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+        type: kubernetes
+      environment:
+        group:
+          id: fs_check_group
+          parallel: true
+          items:
+            - id: environment_env_2a02
+              deploy-to: infrastructure_kubernetes_5a5e
+            - id: environment_env_f4a4
+              deploy-to: INVALID_INFRA_ID
+      on-failure:
+        - errors: [all]
+          action: ignore

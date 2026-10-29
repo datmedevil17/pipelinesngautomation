@@ -1,0 +1,28 @@
+# This run shows: multi-deployment.if gates the whole block once; when false, no service deployment starts.
+pipeline:
+  stages:
+    - name: multi-deployment-when-false
+      id: multi_deployment_when_false
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying <+service.identifier>
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      multi-deployment:
+        if: <+pipeline.name> == "never"
+      service:
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - service_kubernetes_bg_traffic_shift
+        type: kubernetes
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

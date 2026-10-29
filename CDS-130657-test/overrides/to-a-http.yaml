@@ -1,0 +1,8 @@
+overrides:
+  manifests:
+    - manifest:
+        identifier: m1
+        type: HelmRepoOverride
+        spec:
+          connectorRef: helm_repo_a
+          type: Http

@@ -1,0 +1,20 @@
+service:
+  name: svc_http_a
+  identifier: svc_http_a
+  serviceDefinition:
+    type: NativeHelm
+    spec:
+      manifests:
+        - manifest:
+            identifier: myChart
+            type: HelmChart
+            spec:
+              store:
+                type: Http
+                spec:
+                  connectorRef: helm_repo_a
+              chartName: hello-world
+              chartVersion: 0.1.0
+              helmVersion: V3
+              skipResourceVersioning: false
+  gitOpsEnabled: false

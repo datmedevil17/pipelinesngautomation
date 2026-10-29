@@ -1,0 +1,31 @@
+# This run shows: multi-deployment as runtime input - pick run-all and max-concurrency 2 at run time; the 3rd service still deploys after the failure.
+pipeline:
+  stages:
+    - name: runtime-input
+      id: runtime_input
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        parallel: false
+        items:
+          - service_kubernetes_k8s_shift_repro
+          - INVALID_SERVICE_ID
+          - service_kubernetes_bg_traffic_shift
+        type: kubernetes
+      multi-deployment:
+        on-failure: <+input>.allowedValues(run-all,skip-queued)
+        max-concurrency: <+input>
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e

@@ -1,0 +1,38 @@
+pipeline:
+  stages:
+    - name: T1-stage-fallback
+      id: ID_T1_stage_fallback
+      steps:
+        - name: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Deploy
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      service:
+        items:
+          - INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors: [approval-rejection]
+            action: abort
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      on-failure:
+        - errors: [all]
+          action: stage-rollback
+      rollback:
+        - name: Undo
+          run:
+            script: echo ROLLBACK_RAN
+            container:
+              image: alpine
+              connector: test_127344_docker
+          id: Undo
