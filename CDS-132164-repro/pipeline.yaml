@@ -1,0 +1,55 @@
+pipeline:
+  clone:
+    enabled: false
+  id: cds132164repro
+  name: CDS-132164 BG pruning swap repro
+  stages:
+    - environment:
+        deploy-to: CDPAutomationInfraxhEfGl4Omy
+        id: CDPAutomationEnvxxZQxXpHC0
+      id: S1
+      name: S1
+      on-failure:
+        - action: stage-rollback
+          errors:
+            - all
+      rollback:
+        - delegate:
+            - kubernetes
+          id: rollbackBgSwapServices
+          name: Swap primary with stage service
+          template:
+            uses: k8sBlueGreenSwapServicesSelectorsStep
+            with:
+              is_openshift: ${{rollback.data.HARNESS_IS_OPENSHIFT}}
+              stable_service: ${{rollback.data.PLUGIN_STABLE_SERVICE}}
+              stage_service: ${{rollback.data.PLUGIN_STAGE_SERVICE}}
+          timeout: 10m
+      runtime:
+        cloud: {}
+      service:
+        id: CDPAutomationSvc3AHDNSdAoW
+        type: kubernetes
+      steps:
+        - group:
+            steps:
+              - delegate:
+                  - kubernetes
+                id: stageDeployment
+                name: Stage Deployment
+                template:
+                  uses: k8sBlueGreenDeployStep
+                  with:
+                    pruning: true
+                    skip_dry_run: false
+                timeout: 10m
+              - delegate:
+                  - kubernetes
+                id: bgSwapServices
+                name: Swap primary with stage service
+                template:
+                  uses: k8sBlueGreenSwapServicesSelectorsStep
+                  with: {}
+                timeout: 10m
+          id: StepGroup
+          name: StepGroup

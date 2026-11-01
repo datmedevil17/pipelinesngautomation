@@ -1,0 +1,7 @@
+name: harness-example
+replicas: 2
+image: <+artifacts.primary.image>
+containerPort: 80
+servicePort: 80
+# set to false on the last run so the extra resources get pruned
+extraResources: true

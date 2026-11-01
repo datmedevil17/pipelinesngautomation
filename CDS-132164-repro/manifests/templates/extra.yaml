@@ -1,0 +1,13 @@
+{{- if .Values.extraResources }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{.Values.name}}-sa
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Values.name}}-config
+data:
+  key: value
+{{- end }}
