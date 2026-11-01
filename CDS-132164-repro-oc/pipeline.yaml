@@ -1,0 +1,59 @@
+# Replace <OPENSHIFT_ENV>, <OPENSHIFT_INFRA>, <OC_SERVICE> with QA OpenShift ids.
+# Runs: A = with as below (oc path) | B = is_openshift: false | C = with: {} (release fallback)
+pipeline:
+  clone:
+    enabled: false
+  id: cds132164reprooc
+  name: CDS-132164 BG swap OpenShift
+  stages:
+    - id: S1
+      name: S1
+      environment:
+        id: <OPENSHIFT_ENV>
+        deploy-to: <OPENSHIFT_INFRA>
+      service:
+        id: <OC_SERVICE>
+        type: kubernetes
+      runtime:
+        cloud: {}
+      on-failure:
+        - action: stage-rollback
+          errors:
+            - all
+      rollback:
+        - id: rollbackBgSwapServices
+          name: Rollback swap
+          delegate:
+            - kubernetes
+          template:
+            uses: k8sBlueGreenSwapServicesSelectorsStep
+            with:
+              is_openshift: ${{rollback.data.HARNESS_IS_OPENSHIFT}}
+              stable_service: ${{rollback.data.PLUGIN_STABLE_SERVICE}}
+              stage_service: ${{rollback.data.PLUGIN_STAGE_SERVICE}}
+          timeout: 10m
+      steps:
+        - id: StepGroup
+          name: StepGroup
+          group:
+            steps:
+              - id: stageDeployment
+                name: Stage Deployment
+                delegate:
+                  - kubernetes
+                template:
+                  uses: k8sBlueGreenDeployStep
+                  with:
+                    pruning: true
+                timeout: 10m
+              - id: bgSwapServices
+                name: Swap (oc)
+                delegate:
+                  - kubernetes
+                template:
+                  uses: k8sBlueGreenSwapServicesSelectorsStep
+                  with:
+                    stable_service: ${{steps.stageDeployment.output.outputVariables.stableService}}
+                    stage_service: ${{steps.stageDeployment.output.outputVariables.stageService}}
+                    is_openshift: ${{steps.stageDeployment.output.outputVariables.isOpenshift}}
+                timeout: 10m

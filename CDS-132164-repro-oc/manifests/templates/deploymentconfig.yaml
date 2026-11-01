@@ -1,0 +1,22 @@
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  name: {{.Values.name}}-dc
+spec:
+  replicas: {{int .Values.replicas}}
+  selector:
+    app: {{.Values.name}}
+  strategy:
+    type: Rolling
+  triggers:
+    - type: ConfigChange
+  template:
+    metadata:
+      labels:
+        app: {{.Values.name}}
+    spec:
+      containers:
+        - name: {{.Values.name}}
+          image: {{.Values.image}}
+          ports:
+            - containerPort: {{.Values.containerPort}}

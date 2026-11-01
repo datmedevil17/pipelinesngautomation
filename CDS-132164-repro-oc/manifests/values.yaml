@@ -1,0 +1,5 @@
+name: harness-example-oc
+replicas: 2
+image: nginxinc/nginx-unprivileged:1.25
+containerPort: 8080
+servicePort: 80
