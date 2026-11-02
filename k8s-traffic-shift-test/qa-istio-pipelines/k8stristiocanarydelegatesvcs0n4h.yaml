@@ -14,8 +14,8 @@ pipeline:
       - k8scanarytristiocheckroutingoqz
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: PreCleanup
       id: PreCleanup
@@ -29,8 +29,6 @@ pipeline:
           - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
           - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
           - <+infra.namespace>/VirtualService/virtual-service-k8scanarytristiocheckroutingoqz
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: CanaryDeployment
       id: CanaryDeployment
@@ -57,8 +55,6 @@ pipeline:
             - host: ${{stage.inputs.resourceNamePrefix}}-svc-canary
               weight: 10
               port: 80
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: validate VirtualService
       id: verifyVirtualService
@@ -128,8 +124,6 @@ pipeline:
           resources:
           - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}-canary
           - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: DeleteApps
       id: DeleteApps
@@ -144,8 +138,6 @@ pipeline:
           - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
           - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
           - <+infra.namespace>/VirtualService/virtual-service-k8scanarytristiocheckroutingoqz
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     rollback:
     - name: RollbackDelete
@@ -155,8 +147,6 @@ pipeline:
         with:
           select_delete_resources: release_name
           release: releasename-740137
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: RollbackDeleteApps
       id: RollbackDeleteApps
@@ -170,8 +160,6 @@ pipeline:
           - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
           - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-canary
           - <+infra.namespace>/VirtualService/virtual-service-k8scanarytristiocheckroutingoqz
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     on-failure:
       errors: all
@@ -182,6 +170,4 @@ pipeline:
         connector: local_rancher_cluster
         automount-service-token: true
         pull: always
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m

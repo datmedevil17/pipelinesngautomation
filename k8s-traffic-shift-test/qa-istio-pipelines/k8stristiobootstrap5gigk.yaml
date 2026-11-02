@@ -10,8 +10,8 @@ pipeline:
       - k8sistiobootstrapsvcxic
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: ensureIstioNamespace
       id: ensureIstioNamespace
@@ -120,8 +120,6 @@ pipeline:
       kubernetes:
         namespace: default
         connector: local_rancher_cluster
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m
     shared-paths:
     - /var/run

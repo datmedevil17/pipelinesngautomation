@@ -21,8 +21,8 @@ pipeline:
       - k8scanarytristiomergevsfle
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: PreCleanup
       id: PreCleanup
@@ -340,6 +340,4 @@ pipeline:
         connector: local_rancher_cluster
         automount-service-token: true
         pull: always
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m

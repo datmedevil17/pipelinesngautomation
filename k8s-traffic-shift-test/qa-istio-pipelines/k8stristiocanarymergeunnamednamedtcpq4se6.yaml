@@ -21,8 +21,8 @@ pipeline:
       - k8scanarytrunnamedqxn
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: PreCleanup1
       id: PreCleanup1
@@ -233,8 +233,6 @@ pipeline:
         connector: local_rancher_cluster
         automount-service-token: true
         pull: always
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m
   - name: stage-named
     id: stageNamed
@@ -248,8 +246,8 @@ pipeline:
       - k8scanarytrnamedizt
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: PreCleanup2
       id: PreCleanup2
@@ -397,8 +395,6 @@ pipeline:
         connector: local_rancher_cluster
         automount-service-token: true
         pull: always
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m
   - name: stage-tcp
     id: stageTcp
@@ -412,8 +408,8 @@ pipeline:
       - k8scanarytrtcpfdk
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: PreCleanup3
       id: PreCleanup3
@@ -569,6 +565,4 @@ pipeline:
         connector: local_rancher_cluster
         automount-service-token: true
         pull: always
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m

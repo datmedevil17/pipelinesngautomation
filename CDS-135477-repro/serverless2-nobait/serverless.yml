@@ -1,6 +1,6 @@
 # CDS-135477 repro -- mirrors QA PipelinesNgAutomation@harness3.0 serverless2/
 service: {{ .Values.serviceName }}
-frameworkVersion: '3.40.0'
+frameworkVersion: '3.39.0'
 
 provider:
   name: aws
