@@ -207,6 +207,7 @@ pipeline:
               stable_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stableService}}
               stage_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stageService}}
               is_openshift: ${{stage.steps.BlueGreenDeployment.output.outputVariables.isOpenshift}}
+              release: releasename-310011
               skip_dry_run: false
               traffic_routing:
                 preserve_fields: true

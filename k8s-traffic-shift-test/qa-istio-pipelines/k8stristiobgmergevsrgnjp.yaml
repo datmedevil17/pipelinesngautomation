@@ -18,11 +18,11 @@ pipeline:
     service:
       type: kubernetes
       items:
-      - k8sbgtristiomergevsbfb
+      - id: service_kubernetes_cb2f
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: PreCleanup
       id: PreCleanup
@@ -35,8 +35,6 @@ pipeline:
           - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
           - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-a
           - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-b
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: BlueGreenDeployment
       id: BlueGreenDeployment
@@ -64,8 +62,6 @@ pipeline:
             - host: ${{stage.inputs.resourceNamePrefix}}-svc-stage
               weight: 10
               port: 9090
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: Validate BG Deploy Merge
       id: validateBGDeployMerge
@@ -211,11 +207,10 @@ pipeline:
           stable_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stableService}}
           stage_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stageService}}
           is_openshift: ${{stage.steps.BlueGreenDeployment.output.outputVariables.isOpenshift}}
+          release: releasename-171969
           skip_dry_run: false
           traffic_routing:
             preserve_fields: true
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: Validate BG Swap PreserveFields
       id: validateBGSwapPreserveFields
@@ -330,8 +325,6 @@ pipeline:
           - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
           - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-a
           - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-b
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     rollback:
     - name: RollbackDelete
@@ -341,8 +334,6 @@ pipeline:
         with:
           select_delete_resources: release_name
           release: releasename-171969
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: RollbackDeleteResources
       id: RollbackDeleteResources
@@ -353,8 +344,6 @@ pipeline:
           resources:
           - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-a
           - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-b
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     on-failure:
       errors: all
@@ -365,6 +354,4 @@ pipeline:
         connector: local_rancher_cluster
         automount-service-token: true
         pull: always
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m

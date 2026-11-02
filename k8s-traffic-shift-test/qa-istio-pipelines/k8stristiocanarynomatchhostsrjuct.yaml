@@ -18,11 +18,11 @@ pipeline:
     service:
       type: kubernetes
       items:
-      - k8scanarytrnomatchhnf
+      - id: service_kubernetes_815e
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: PreCleanup1
       id: PreCleanup1
@@ -106,10 +106,10 @@ pipeline:
               FAILED=1
             fi
 
-            if echo "$VS_TARGET_JSON" | grep -q 'harness.io/release-name'; then
-              echo "PASS: Harness release-name label present on new VS"
+            if echo "$VS_TARGET_JSON" | grep -q '"release":'; then
+              echo "PASS: Harness release label present on new VS"
             else
-              echo "FAIL: Harness release-name label missing on new VS"
+              echo "FAIL: Harness release label missing on new VS"
               FAILED=1
             fi
           fi
@@ -201,8 +201,6 @@ pipeline:
         connector: local_rancher_cluster
         automount-service-token: true
         pull: always
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m
   - name: stage-hosts-preserved
     id: stageHostsPreserved
@@ -213,11 +211,11 @@ pipeline:
     service:
       type: kubernetes
       items:
-      - k8scanarytrhostshyw
+      - id: service_kubernetes_900a
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: PreCleanup2
       id: PreCleanup2
@@ -365,6 +363,4 @@ pipeline:
         connector: local_rancher_cluster
         automount-service-token: true
         pull: always
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m

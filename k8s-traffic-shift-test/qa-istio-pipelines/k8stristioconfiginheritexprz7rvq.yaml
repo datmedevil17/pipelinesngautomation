@@ -42,8 +42,8 @@ pipeline:
       - k8splainsvcojk
     environment:
       items:
-      - id: k8stristioenvrjl
-        deploy-to: k8sistioinfrahuk
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
     steps:
     - name: PreCleanup
       id: PreCleanup
@@ -89,8 +89,6 @@ pipeline:
               weight: ${{pipeline.inputs.trRoutesRoute1Dest1Weight}}
             - host: ${{pipeline.inputs.trRoutesRoute1Dest2Host}}
               weight: ${{pipeline.inputs.trRoutesRoute1Dest2Weight}}
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: verifyResourcesExist
       id: verifyResourcesExist
@@ -162,8 +160,6 @@ pipeline:
             destinations:
             - host: ${{pipeline.inputs.trRoutesRoute1Dest2Host}}
               weight: ${{pipeline.inputs.trRoutesRoute1Dest2WeightChanged}}
-        delegate:
-        - cdpng-pipeline-unified-delegate
       timeout: 15m
     - name: verifyWeightsForRoute1AfterInheritStep
       id: verifyWeightsForRoute1AfterInheritStep
@@ -235,6 +231,4 @@ pipeline:
         connector: local_rancher_cluster
         automount-service-token: true
         pull: always
-      delegate:
-      - cdpng-pipeline-unified-delegate
     timeout: 15m
