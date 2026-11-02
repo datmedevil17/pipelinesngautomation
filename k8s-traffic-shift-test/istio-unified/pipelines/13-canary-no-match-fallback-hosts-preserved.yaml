@@ -106,10 +106,10 @@ pipeline:
                   FAILED=1
                 fi
 
-                if echo "$VS_TARGET_JSON" | grep -q '"release":'; then
-                  echo "PASS: Harness release label present on new VS"
+                if echo "$VS_TARGET_JSON" | grep -q 'harness.io/release-name'; then
+                  echo "PASS: Harness release-name label present on new VS"
                 else
-                  echo "FAIL: Harness release label missing on new VS"
+                  echo "FAIL: Harness release-name label missing on new VS"
                   FAILED=1
                 fi
               fi

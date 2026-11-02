@@ -226,7 +226,6 @@ pipeline:
                           stable_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stableService}}
                           stage_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stageService}}
                           is_openshift: ${{stage.steps.BlueGreenDeployment.output.outputVariables.isOpenshift}}
-                          release: releasename-310005
                           skip_dry_run: false
                       timeout: 15m
                     - name: K8sDeleteApps
@@ -258,7 +257,6 @@ pipeline:
                           stable_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stableService}}
                           stage_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stageService}}
                           is_openshift: ${{stage.steps.BlueGreenDeployment.output.outputVariables.isOpenshift}}
-                          release: releasename-310005
                           skip_dry_run: false
                       timeout: 15m
                   id: do_not_verify_routing
