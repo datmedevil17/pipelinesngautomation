@@ -1,0 +1,2 @@
+serviceName: serverlessunified
+artifactImage: 479370281431.dkr.ecr.us-east-1.amazonaws.com/todolist:latest
