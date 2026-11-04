@@ -1,27 +1,14 @@
-frameworkVersion: '3'
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.39.0'
 
 provider:
   name: aws
-  runtime: java21
+  region: us-east-1
+  ecr:
+    images:
+      appimage:
+        uri: {{ .Values.artifactImage }}
 
 functions:
-  currentTime61:
-    name : ${opt:stage}-${self:custom.PARAMETERS.oem}
-    image: {{.Values.artifactImage}}
-    events:
-      - httpApi:
-          path: /time
-          method: get
-  currentTime62:
-    image: {{.Values.artifactImage}}
-    events:
-      - httpApi:
-          path: /time1
-          method: get   
-custom:
-  DEFAULT_ENV_SETUP: devint
-  DEPLOYMENT_ENV: ${self:custom.CONFIG.ENV, self:custom.DEFAULT_ENV_SETUP}
-  PARAMETERS: ${file(./env/${self:custom.DEPLOYMENT_ENV}/parameters.json)}           
-
-plugins:
-  - serverless-manifest-plugin
+  currentTime:
+    image: appimage
