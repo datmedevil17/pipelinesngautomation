@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cds132909-podip
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cds132909-podip
+  template:
+    metadata:
+      labels:
+        app: cds132909-podip
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25
+          ports:
+            - containerPort: 80
