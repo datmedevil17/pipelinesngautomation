@@ -1,2 +1,1 @@
 serviceName: serverlessunified
-artifactFilePath: <+artifact.artifactPath>
