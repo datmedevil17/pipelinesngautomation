@@ -55,7 +55,7 @@ pipeline:
                 - type: http
                   name: route-api
                   matches:
-                    - uri:
+                    - path:
                         type: exact
                         value: /api/v2
                   destinations:

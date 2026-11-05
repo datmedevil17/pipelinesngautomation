@@ -1,0 +1,140 @@
+pipeline:
+  clone:
+    disabled: true
+  inputs:
+    responseText:
+      type: string
+      value: v1
+    trafficGeneratorSleepTimer:
+      type: number
+      value: 1
+  stages:
+  - name: Deploy
+    id: stage1
+    inputs:
+      resourceNamePrefix:
+        type: string
+        value: sample-k8s-ameb
+    service:
+      type: kubernetes
+      items:
+      - id: service_kubernetes_cb2f
+    environment:
+      items:
+      - id: environment_env_2a02
+        deploy-to: infrastructure_kubernetes_5a5e
+    steps:
+    - name: PreCleanup
+      id: PreCleanup
+      deploy:
+        uses: k8sDeleteStep
+        with:
+          select_delete_resources: resources
+          resources:
+          - <+infra.namespace>/Deployment/${{stage.inputs.resourceNamePrefix}}
+          - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc
+          - <+infra.namespace>/Service/${{stage.inputs.resourceNamePrefix}}-svc-stage
+          - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-a
+          - <+infra.namespace>/VirtualService/${{stage.inputs.resourceNamePrefix}}-vs-b
+          - <+infra.namespace>/HTTPRoute/${{stage.inputs.resourceNamePrefix}}-route
+      timeout: 15m
+    - name: BlueGreenDeployment
+      id: BlueGreenDeployment
+      deploy:
+        uses: k8sBlueGreenDeployStep
+        with:
+          kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+          namespace: <+infra.namespace>
+          release: releasename-135487b
+          skip_dry_run: false
+          pruning: false
+          skip_unchanged_manifest: false
+          traffic_shift: true
+          provider: k8s-native
+          resource_name: ${{stage.inputs.resourceNamePrefix}}-route
+          hosts:
+          - ${{stage.inputs.resourceNamePrefix}}-svc
+          gateways:
+          - trafficshift-gateway
+          routes:
+          - type: http
+            name: route1
+            destinations:
+            - host: ${{stage.inputs.resourceNamePrefix}}-svc
+              weight: 60
+            - host: ${{stage.inputs.resourceNamePrefix}}-svc-stage
+              weight: 40
+          - type: http
+            name: route2
+            destinations:
+            - host: ${{stage.inputs.resourceNamePrefix}}-svc
+              weight: 100
+            - host: ${{stage.inputs.resourceNamePrefix}}-svc-stage
+              weight: 0
+      timeout: 15m
+    - name: Unset stage weight on route1 nil weight
+      id: unsetWeight
+      run:
+        container:
+          image: bitnami/kubectl
+          connector: account.harnessImage
+          pull: if-not-exists
+        shell: bash
+        script: |-
+          export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+          P=${{stage.inputs.resourceNamePrefix}}
+          NS=<+infra.namespace>
+          kubectl get httproute $P-route -n $NS -o jsonpath='{range .spec.rules[*]}{range .backendRefs[*]}{.name}{"="}{.weight}{","}{end}{"\n"}{end}'
+          kubectl patch httproute $P-route -n $NS --type=json -p '[{"op":"remove","path":"/spec/rules/0/backendRefs/1/weight"}]'
+          kubectl get httproute $P-route -n $NS -o jsonpath='{range .spec.rules[*]}{range .backendRefs[*]}{.name}{"="}{.weight}{","}{end}{"\n"}{end}'
+      timeout: 15m
+    - name: Swap primary with stage service
+      id: BgSwapServices
+      deploy:
+        uses: k8sBlueGreenSwapServicesSelectorsStep
+        with:
+          kubeconfig: <+infrastructure.PLUGIN_HARNESS_KUBE_CONFIG_PATH>
+          namespace: <+infra.namespace>
+          stable_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stableService}}
+          stage_service: ${{stage.steps.BlueGreenDeployment.output.outputVariables.stageService}}
+          is_openshift: ${{stage.steps.BlueGreenDeployment.output.outputVariables.isOpenshift}}
+          release: releasename-135487b
+          skip_dry_run: false
+      timeout: 15m
+    - name: Validate HTTPRoute after swap
+      id: validateRoute
+      run:
+        container:
+          image: bitnami/kubectl
+          connector: account.harnessImage
+          pull: if-not-exists
+        shell: bash
+        script: |-
+          export KUBECONFIG=${{infra.PLUGIN_HARNESS_KUBE_CONFIG_PATH}}
+          P=${{stage.inputs.resourceNamePrefix}}
+          NS=<+infra.namespace>
+          FAILED=0
+          out=$(kubectl get httproute $P-route -n $NS -o jsonpath='{range .spec.rules[*]}{range .backendRefs[*]}{.name}{"="}{.weight}{","}{end}{"\n"}{end}')
+          echo "$out"
+          echo "$out" | grep -q "$P-svc=100,$P-svc-stage=0," && echo "PASS: all rules now stable=100 stage=0" || { echo "FAIL: expected stable=100 stage=0 in every rule"; FAILED=1; }
+          [ "$(echo "$out" | grep -c "$P-svc-stage=0,")" = "$(echo "$out" | grep -c .)" ] && echo "PASS: stage=0 on every rule" || { echo "FAIL: stage not 0 everywhere"; FAILED=1; }
+          [ $FAILED -eq 0 ] || exit 1
+      timeout: 15m
+    - name: Cleanup
+      id: Cleanup
+      deploy:
+        uses: k8sDeleteStep
+        with:
+          select_delete_resources: release_name
+          release: releasename-135487b
+      timeout: 15m
+    on-failure:
+      errors: all
+      action: stage-rollback
+    runtime:
+      kubernetes:
+        namespace: default
+        connector: local_rancher_cluster
+        automount-service-token: true
+        pull: always
+    timeout: 15m

@@ -15,14 +15,14 @@ inputs:
                   - type: http
                     name: route1
                     matches:
-                      - uri:
+                      - path:
                           type: prefix
                           value: /login
                       - method:
                           type: exact
                           value: POST
                       - headers:
-                          - key: X-Request
+                          - name: X-Request
                             type: prefix
                             value: authxx
                     destinations:

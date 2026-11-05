@@ -74,14 +74,14 @@ pipeline:
                 - type: http
                   name: ${{pipeline.inputs.trRoutesRoute1}}
                   matches:
-                    - uri:
+                    - path:
                         type: prefix
                         value: ${{pipeline.inputs.trRoutesRoute1RulesUri}}
                     - method:
                         type: exact
                         value: POST
                     - headers:
-                        - key: X-Request
+                        - name: X-Request
                           type: prefix
                           value: ${{pipeline.inputs.trRoutesRoute1RulesHeader}}
                   destinations:

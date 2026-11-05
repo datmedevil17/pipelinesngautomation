@@ -53,9 +53,9 @@ pipeline:
           resource_name: virtualserviceautomation
           routes:
           - type: http
-            name: route-api
+            name: route-api  
             matches:
-            - uri:
+            - path:
                 type: exact
                 value: /api/v2
             destinations:

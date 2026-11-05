@@ -44,7 +44,7 @@ pipeline:
           - type: http
             name: route1
             matches:
-            - uri:
+            - path:
                 type: prefix
                 value: /login
             - method:
@@ -59,13 +59,13 @@ pipeline:
             - port:
                 value: 8080
             - headers:
-              - key: X-Request
+              - name: X-Request
                 type: prefix
                 value: req
-              - key: user-agent
+              - name: user-agent
                 type: regex
                 value: .*Android.*
-              - key: Authorization
+              - name: Authorization
                 type: exact
                 value: ''
             destinations:
@@ -75,9 +75,7 @@ pipeline:
             - host: svc3
           - type: http
             name: route2
-            matches:
-            - uri:
-                value: /register
+           
             destinations:
             - host: svc1
             - host: svc2
