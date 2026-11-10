@@ -1,34 +1,24 @@
-# CDS-132909 repro. Swap service/env/infra ids for ones that exist in your account.
-# Run 3 (literal items) is below. For the real repro (Run 2) replace items with:
-#   items: ${{pipeline.stages.S1.steps.K8sRolling.output.podIps}}
 pipeline:
   clone:
     enabled: false
   id: cds132909repro
-  name: CDS-132909 repeat over podIps
+  name: CDS132909 repro
+  delegate:
+    - myrunner
   stages:
     - id: S1
       name: S1
       environment:
-        id: CDPAutomationEnvxxZQxXpHC0
-        deploy-to: CDPAutomationInfraxhEfGl4Omy
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
       service:
-        id: CDS132909Svc
-        type: kubernetes
-      runtime:
-        cloud: {}
-      on-failure:
-        - action: stage-rollback
-          errors:
-            - all
-      rollback:
-        - id: rollbackRolloutDeployment
-          name: Rollback Rollout Deployment
-          template:
-            uses: k8sRollingRollbackStep
-            with:
-              pruning: false
-          timeout: 10m
+        items:
+          - cds132909_svc
+      runtime: delegate
+      platform:
+        os: linux
+        arch: arm64
       steps:
         - id: K8sRolling
           name: K8sRolling
@@ -37,6 +27,7 @@ pipeline:
             with:
               skip_dry_run: true
           timeout: 10m
+        # RUN A (control): literal items -> should pass
         - id: Print_pod_ip
           name: Print pod ip
           run:
@@ -45,6 +36,16 @@ pipeline:
           strategy:
             repeat:
               items: ["10.0.0.1", "10.0.0.2"]
+          timeout: 10m
+        # RUN B (bug): swap items above for ->
+        #   items: ${{pipeline.stages.S1.steps.K8sRolling.output.podIps}}
+        # RUN C (workaround): single step, no strategy
+        - id: Print_pod_ips_loop
+          name: Print pod ips loop
+          run:
+            script: |
+              for ip in $(echo '${{pipeline.stages.S1.steps.K8sRolling.output.podIps}}' | tr -d '[]," '  | tr ';' ' '); do echo "pod ip: $ip"; done
+            shell: bash
           timeout: 10m
         - id: finalDelete
           name: finalDelete

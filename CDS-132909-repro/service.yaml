@@ -1,0 +1,47 @@
+service:
+  name: cds132909_svc
+  identifier: cds132909_svc
+  serviceDefinition:
+    type: Kubernetes
+    spec:
+      manifests:
+        - manifest:
+            identifier: m1
+            type: K8sManifest
+            spec:
+              store:
+                type: CustomRemote
+                spec:
+                  filePath: manifests/
+                  extractionScript: |-
+                    mkdir -p manifests/templates
+                    cat <<'VALUES' > manifests/values.yaml
+                    name: cds132909-app
+                    image: nginx:1.25
+                    VALUES
+                    cat <<'DEPLOYMENT' > manifests/templates/deployment.yaml
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: {{.Values.name}}
+                    spec:
+                      replicas: 2
+                      selector:
+                        matchLabels:
+                          app: {{.Values.name}}
+                      template:
+                        metadata:
+                          labels:
+                            app: {{.Values.name}}
+                        spec:
+                          containers:
+                            - name: {{.Values.name}}
+                              image: {{.Values.image}}
+                              ports:
+                                - containerPort: 80
+                    DEPLOYMENT
+              valuesPaths:
+                - manifests/values.yaml
+              optionalValuesYaml: false
+              skipResourceVersioning: false
+              enableDeclarativeRollback: false
