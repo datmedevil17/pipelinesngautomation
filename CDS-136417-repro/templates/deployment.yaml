@@ -17,3 +17,8 @@ spec:
       containers:
         - name: app
           image: <+artifacts.primary.image>
+          env:
+            - name: DEBUG_DOCKERCFG
+              value: "<+dockerConfigJsonSecret.primary>"
+            - name: DEBUG_IMAGE
+              value: "<+artifacts.primary.image>"
