@@ -16,9 +16,9 @@ spec:
         - name: acr-pull-secret
       containers:
         - name: app
-          image: <+artifacts.primary.image>
+          image: <+steps.artifacts.primary.image>
           env:
             - name: DEBUG_DOCKERCFG
-              value: "<+dockerConfigJsonSecret.primary>"
+              value: "<+steps.artifacts.primary.dockerConfigJsonSecret>"
             - name: DEBUG_IMAGE
-              value: "<+artifacts.primary.image>"
+              value: "<+steps.artifacts.primary.image>"
