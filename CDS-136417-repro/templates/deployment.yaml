@@ -22,9 +22,5 @@ spec:
               value: "<+steps.artifacts.primary.dockerConfigJsonSecret>"
             - name: DEBUG_IMAGE
               value: "<+steps.artifacts.primary.image>"
-            - name: DEBUG_A
-              value: "${{steps.artifacts.primary.image}}"
-            - name: DEBUG_B
-              value: "${{artifacts.primary.image}}"
             - name: DEBUG_C
               value: "<+service.artifacts.primary.image>"
