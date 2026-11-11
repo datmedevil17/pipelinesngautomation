@@ -1,0 +1,3 @@
+# values for CDS-136417 repro (unused placeholders)
+name: acr-pull-demo
+replicas: 1
