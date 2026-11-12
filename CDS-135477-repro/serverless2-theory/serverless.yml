@@ -1,0 +1,15 @@
+# CDS-135477 theory: image comes ONLY from values.yml, so an unresolved expression is visible in the output
+service: {{ .Values.serviceName }}
+frameworkVersion: '3.39.0'
+
+provider:
+  name: aws
+  region: us-east-1
+  ecr:
+    images:
+      appimage:
+        uri: {{ .Values.artifactImage }}
+
+functions:
+  currentTime:
+    image: appimage
