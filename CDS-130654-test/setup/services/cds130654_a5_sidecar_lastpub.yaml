@@ -1,0 +1,44 @@
+service:
+  name: cds130654_a5_sidecar_lastpub
+  identifier: cds130654_a5_sidecar_lastpub
+  orgIdentifier: organization_org_a818
+  projectIdentifier: project_proj_b28b
+  serviceDefinition:
+    type: Kubernetes
+    spec:
+      manifests:
+        - manifest:
+            identifier: m1
+            type: K8sManifest
+            spec:
+              store:
+                type: Github
+                spec:
+                  connectorRef: connector_Github_4137_classic
+                  gitFetchType: Branch
+                  paths:
+                    - CDS-130654-test/manifests/templates
+                  branch: main
+              valuesPaths:
+                - CDS-130654-test/manifests/values/a5.yaml
+              skipResourceVersioning: false
+              enableDeclarativeRollback: false
+      artifacts:
+        primary:
+          primaryArtifactRef: nginx
+          sources:
+            - identifier: nginx
+              type: DockerRegistry
+              spec:
+                connectorRef: test_127344_docker
+                imagePath: library/nginx
+                tag: 1.26.0
+        sidecars:
+          - sidecar:
+              identifier: sc1
+              type: DockerRegistry
+              spec:
+                connectorRef: test_127344_docker
+                imagePath: library/busybox
+                tag: <+lastPublished.tag>
+  gitOpsEnabled: false

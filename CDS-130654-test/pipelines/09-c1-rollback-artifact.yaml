@@ -1,0 +1,42 @@
+pipeline:
+  name: CDS130654 C1 rollbackArtifact
+  id: cds130654_c1_rollback_artifact
+  clone:
+    disabled: true
+  stages:
+    - name: Deploy
+      id: deploy
+      service:
+        type: kubernetes
+        items:
+          - cds130654_c1_rollback_artifact
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      timeout: 20m
+      steps:
+        - name: Echo artifact
+          id: echoArtifact
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "primary.image = <+artifacts.primary.image>"
+              echo "primary.tag   = <+artifacts.primary.tag>"
+              echo "rollbackArtifact.tag = <+rollbackArtifact.tag>"
+          timeout: 5m
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+      on-failure:
+        - errors:
+            - all
+          action: abort

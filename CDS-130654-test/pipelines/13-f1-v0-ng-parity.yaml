@@ -1,0 +1,62 @@
+pipeline:
+  name: CDS130654 F1 v0 NG parity
+  identifier: cds130654_f1_v0_parity
+  orgIdentifier: organization_org_a818
+  projectIdentifier: project_proj_b28b
+  tags: {}
+  stages:
+    - stage:
+        name: Deploy
+        identifier: Deploy
+        type: Deployment
+        spec:
+          deploymentType: Kubernetes
+          service:
+            serviceRef: <+input>
+          environment:
+            environmentRef: environment_env_2a02
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: infrastructure_kubernetes_5a5e
+          execution:
+            steps:
+              - step:
+                  type: ShellScript
+                  name: Echo artifact
+                  identifier: echoArtifact
+                  timeout: 5m
+                  spec:
+                    shell: Bash
+                    onDelegate: true
+                    source:
+                      type: Inline
+                      spec:
+                        script: |-
+                          echo "primary.image = <+artifacts.primary.image>"
+                          echo "primary.tag   = <+artifacts.primary.tag>"
+                          echo "rollbackArtifact.tag = <+rollbackArtifact.tag>"
+                    environmentVariables: []
+                    outputVariables: []
+              - step:
+                  type: K8sRollingDeploy
+                  name: Rolling Deploy
+                  identifier: rollingDeploy
+                  timeout: 10m
+                  spec:
+                    skipDryRun: false
+                    pruningEnabled: false
+            rollbackSteps:
+              - step:
+                  type: K8sRollingRollback
+                  name: Rolling Rollback
+                  identifier: rollingRollback
+                  timeout: 10m
+                  spec:
+                    pruningEnabled: false
+        tags: {}
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: StageRollback

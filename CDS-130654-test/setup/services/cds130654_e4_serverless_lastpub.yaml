@@ -1,0 +1,33 @@
+service:
+  name: cds130654_e4_serverless_lastpub
+  identifier: cds130654_e4_serverless_lastpub
+  orgIdentifier: organization_org_a818
+  projectIdentifier: project_proj_b28b
+  serviceDefinition:
+    type: ServerlessAwsLambda
+    spec:
+      manifests:
+        - manifest:
+            identifier: m1
+            type: ServerlessAwsLambda
+            spec:
+              store:
+                type: Github
+                spec:
+                  connectorRef: connector_Github_4137_classic
+                  gitFetchType: Branch
+                  branch: main
+                  paths:
+                    - nestedPathTest/apps/team-a/svc/v2/serverless
+              configOverridePath: serverlessUnified.yaml
+      artifacts:
+        primary:
+          primaryArtifactRef: artifact
+          sources:
+            - identifier: artifact
+              type: Ecr
+              spec:
+                connectorRef: ECRConnectorForAutomationTest
+                imagePath: todolist
+                tag: <+lastPublished.tag>
+                region: us-east-1

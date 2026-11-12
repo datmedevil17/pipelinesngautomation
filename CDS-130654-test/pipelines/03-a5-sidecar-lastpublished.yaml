@@ -1,0 +1,42 @@
+pipeline:
+  name: CDS130654 A5 sidecar lastPublished
+  id: cds130654_a5_sidecar_lastpublished
+  clone:
+    disabled: true
+  stages:
+    - name: Deploy
+      id: deploy
+      service:
+        type: kubernetes
+        items:
+          - cds130654_a5_sidecar_lastpub
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      timeout: 20m
+      steps:
+        - name: Echo artifact
+          id: echoArtifact
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "primary.image = <+artifacts.primary.image>"
+              echo "primary.tag   = <+artifacts.primary.tag>"
+              echo "sidecar sc1.tag = <+artifacts.sidecars.sc1.tag>"
+          timeout: 5m
+        - name: Rolling Deploy
+          id: rollingDeploy
+          template:
+            uses: k8sRollingDeployStep
+      on-failure:
+        - errors:
+            - all
+          action: abort

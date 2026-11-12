@@ -1,0 +1,36 @@
+pipeline:
+  name: CDS130654 E4 serverless lastPublished
+  id: cds130654_e4_serverless_lastpub
+  clone:
+    disabled: true
+  stages:
+    - name: Deploy
+      id: deploy
+      service:
+        items:
+          - cds130654_e4_serverless_lastpub
+      environment:
+        items:
+          - id: ServerlessEnv_ifWGy
+            deploy-to: infra_VVjIq
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: local_rancher_cluster
+      timeout: 20m
+      steps:
+        - name: Echo artifact
+          id: echoArtifact
+          run:
+            container:
+              image: alpine
+              connector: account.harnessImage
+            shell: sh
+            script: |-
+              echo "primary.image = <+artifacts.primary.image>"
+              echo "primary.tag   = <+artifacts.primary.tag>"
+          timeout: 5m
+      on-failure:
+        - errors:
+            - all
+          action: abort
