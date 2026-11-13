@@ -1,0 +1,24 @@
+service: {{.Values.serviceName}}
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: java11
+
+package:
+  artifact: {{.Values.artifactFilePath}}
+
+functions:
+  currentTime62:
+    handler: com.serverless.Handler
+    events:
+      - httpApi:
+          path: /time1
+          method: get   
+custom:
+  DEFAULT_ENV_SETUP: devint
+  DEPLOYMENT_ENV: ${self:custom.CONFIG.ENV, self:custom.DEFAULT_ENV_SETUP}
+  PARAMETERS: ${file(./env/${self:custom.DEPLOYMENT_ENV}/parameters.json)}           
+
+plugins:
+  - {{.Values.pluginName}}

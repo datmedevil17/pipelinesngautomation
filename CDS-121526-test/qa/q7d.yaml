@@ -1,0 +1,38 @@
+# QA 7d: a failing user step is handled by the stage rule (ignore) only; service/environment abort and skip-queued do not fire, so the second deployment still runs.
+pipeline:
+  stages:
+    - name: q7d_stage_independent
+      id: q7d_stage_independent
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo USER_STEP_FAILING <+service.identifier>; exit 1
+            container:
+              image: alpine
+              connector: account.harnessImage
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: account.cdautomationtest
+      service:
+        items:
+          - service_kubernetes_675d_bg
+          - service_kubernetes_update_release_k8s_traffic
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action: abort
+      multi-deployment:
+        on-failure: skip-queued
+        max-concurrency: 1
+      environment:
+        items:
+          - id: environment_env_a193
+            deploy-to: infrastructure_kubernetes_k8s_traffic_shift
+        on-failure:
+          - errors: [all]
+            action: abort
+      on-failure:
+        - errors: [all]
+          action: ignore

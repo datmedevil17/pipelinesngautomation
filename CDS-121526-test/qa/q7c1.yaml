@@ -1,0 +1,31 @@
+# QA 7c.1: service on-failure fail + environment on-failure abort on the same stage; each scope uses its own rule (invalid service -> Failed, invalid infra -> Aborted).
+pipeline:
+  stages:
+    - name: q7c1_service_and_env
+      id: q7c1_service_and_env
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying
+            container:
+              image: alpine
+              connector: account.harnessImage
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: account.cdautomationtest
+      service:
+        items:
+          - INVALID_SERVICE_ID
+        type: kubernetes
+        on-failure:
+          - errors: [all]
+            action: fail
+      environment:
+        items:
+          - id: environment_env_a193
+            deploy-to: infrastructure_kubernetes_k8s_traffic_shift
+        on-failure:
+          - errors: [all]
+            action: abort

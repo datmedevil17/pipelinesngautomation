@@ -1,0 +1,27 @@
+service: asdfasdfasd
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: java21
+
+functions:
+  currentTime61:
+    image: {{.Values.artifactImage}}
+    events:
+      - httpApi:
+          path: /time
+          method: get
+    memorySize: 512      
+  currentTime62:
+    image: {{.Values.artifactImage}}
+    events:
+      - httpApi:
+          path: /time1
+          method: get   
+  currentTime65:
+    image: {{.Values.artifactImage}}
+    events:
+      - httpApi:
+          path: /time2
+          method: get

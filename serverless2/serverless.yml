@@ -1,0 +1,29 @@
+service: newcheckstry
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: java21
+
+functions:
+  currentTime61:
+    name : ${opt:stage}-${self:custom.PARAMETERS.oem}
+    image: {{.Values.artifactImage}}
+    events:
+      - httpApi:
+          path: /time
+          method: get
+  currentTime62:
+    image: {{.Values.artifactImage}}
+    events:
+      - httpApi:
+          path: /time1
+          method: get   
+custom:
+  DEFAULT_ENV_SETUP: devint
+  DEPLOYMENT_ENV: ${self:custom.CONFIG.ENV, self:custom.DEFAULT_ENV_SETUP}
+  PARAMETERS: ${file(./env/${self:custom.DEPLOYMENT_ENV}/parameters.json)}           
+
+plugins:
+  - serverless-manifest-plugin
+  

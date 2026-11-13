@@ -1,0 +1,36 @@
+# QA 6c: step-level if is checked per deployment; the non-matching deployment skips that step, both deployments still finish.
+pipeline:
+  stages:
+    - name: q6c_step_if
+      id: q6c_step_if
+      steps:
+        - name: Only first service
+          id: only_first
+          if: <+service.identifier> == "service_kubernetes_675d_bg"
+          run:
+            script: echo MATCHED <+service.identifier>
+            container:
+              image: alpine
+              connector: account.harnessImage
+        - name: Always
+          id: always
+          run:
+            script: echo ALWAYS <+service.identifier>
+            container:
+              image: alpine
+              connector: account.harnessImage
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: account.cdautomationtest
+      service:
+        items:
+          - service_kubernetes_675d_bg
+          - service_kubernetes_update_release_k8s_traffic
+        type: kubernetes
+      multi-deployment:
+        on-failure: run-all
+      environment:
+        items:
+          - id: environment_env_a193
+            deploy-to: infrastructure_kubernetes_k8s_traffic_shift

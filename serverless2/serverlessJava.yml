@@ -1,0 +1,17 @@
+service: newcheckstry
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: java21
+
+package:
+  artifact: {{.Values.artifactFilePath}}
+
+functions:
+  currentTime:
+    handler: com.serverless.Handler
+    events:
+      - httpApi:
+          path: /time
+          method: get

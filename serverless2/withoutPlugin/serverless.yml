@@ -1,0 +1,25 @@
+service: newcheckstry
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: java21
+  stage: ${opt:stage, "yui"}
+
+package:
+  artifact: {{.Values.artifactFilePath}}
+
+functions:
+  currentTime61:
+    handler: com.serverless.Handler
+    name : ${opt:stage}-abd
+    events:
+      - httpApi:
+          path: /time
+          method: get
+  currentTime62:
+    handler: com.serverless.Handler
+    events:
+      - httpApi:
+          path: /time1
+          method: get   

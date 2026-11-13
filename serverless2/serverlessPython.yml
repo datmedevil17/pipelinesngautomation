@@ -1,0 +1,17 @@
+service: newcheckstry
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.9
+
+package:
+  artifact: {{.Values.artifactFilePath}}
+
+functions:
+  currentTime:
+    handler: com.serverless.Handler
+    events:
+      - httpApi:
+          path: /time
+          method: get

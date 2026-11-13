@@ -1,0 +1,32 @@
+service: newcheckstry
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: java11
+  stage: ${opt:stage, "yui"}
+
+package:
+  artifact: {{.Values.artifactFilePath}}
+
+functions:
+  currentTime61:
+    handler: com.serverless.Handler
+    name : ${opt:stage}-${self:custom.PARAMETERS.oem}
+    events:
+      - httpApi:
+          path: /time
+          method: get
+  currentTime62:
+    handler: com.serverless.Handler
+    events:
+      - httpApi:
+          path: /time1
+          method: get   
+custom:
+  DEFAULT_ENV_SETUP: devint
+  DEPLOYMENT_ENV: ${self:custom.CONFIG.ENV, self:custom.DEFAULT_ENV_SETUP}
+  PARAMETERS: ${file(./env/${self:custom.DEPLOYMENT_ENV}/parameters.json)}           
+
+plugins:
+  - serverless-manifest-plugin

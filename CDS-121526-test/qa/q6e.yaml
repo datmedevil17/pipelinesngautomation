@@ -1,0 +1,30 @@
+# QA 6e: multi-deployment if and max-concurrency as runtime inputs, asked on Run Pipeline.
+pipeline:
+  stages:
+    - name: q6e_runtime_inputs
+      id: q6e_runtime_inputs
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying <+service.identifier>
+            container:
+              image: alpine
+              connector: account.harnessImage
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: account.cdautomationtest
+      service:
+        items:
+          - service_kubernetes_675d_bg
+          - service_kubernetes_update_release_k8s_traffic
+        type: kubernetes
+      multi-deployment:
+        on-failure: run-all
+        if: <+input>
+        max-concurrency: <+input>
+      environment:
+        items:
+          - id: environment_env_a193
+            deploy-to: infrastructure_kubernetes_k8s_traffic_shift

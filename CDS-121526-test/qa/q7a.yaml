@@ -1,0 +1,34 @@
+# QA 7a: services x environments matrix, both parallel, skip-queued, max-concurrency 2 - the first failure skips the queued deployments.
+pipeline:
+  stages:
+    - name: q7a_matrix
+      id: q7a_matrix
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo START <+service.identifier> <+env.identifier> $(date +%T); sleep 20
+            container:
+              image: alpine
+              connector: account.harnessImage
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: account.cdautomationtest
+      service:
+        items:
+          - INVALID_SERVICE_ID
+          - service_kubernetes_675d_bg
+          - service_kubernetes_update_release_k8s_traffic
+        type: kubernetes
+        parallel: true
+      multi-deployment:
+        on-failure: skip-queued
+        max-concurrency: 2
+      environment:
+        parallel: true
+        items:
+          - id: environment_env_a193
+            deploy-to: infrastructure_kubernetes_k8s_traffic_shift
+          - id: testi2y
+            deploy-to: k8sdirectinfraistiojg5

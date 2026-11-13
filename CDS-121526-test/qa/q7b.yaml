@@ -1,0 +1,39 @@
+# QA 7b: environment group with environment on-failure (abort) + multi-deployment if true; the invalid infra in the group follows the environment rule, not the stage ignore.
+pipeline:
+  stages:
+    - name: q7b_envgroup_if
+      id: q7b_envgroup_if
+      steps:
+        - name: Deploy
+          id: Deploy
+          run:
+            script: echo deploying <+env.identifier>
+            container:
+              image: alpine
+              connector: account.harnessImage
+      runtime:
+        kubernetes:
+          namespace: default
+          connector: account.cdautomationtest
+      service:
+        items:
+          - service_kubernetes_675d_bg
+        type: kubernetes
+      multi-deployment:
+        on-failure: run-all
+        if: <+pipeline.name> != "never"
+      environment:
+        group:
+          id: fs_qa_group
+          parallel: true
+          items:
+            - id: environment_env_a193
+              deploy-to: infrastructure_kubernetes_k8s_traffic_shift
+            - id: testi2y
+              deploy-to: INVALID_INFRA_ID
+        on-failure:
+          - errors: [all]
+            action: abort
+      on-failure:
+        - errors: [all]
+          action: ignore
