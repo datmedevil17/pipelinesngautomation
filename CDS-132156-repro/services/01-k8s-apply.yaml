@@ -1,0 +1,22 @@
+# CDS-132156 -- k8s service, templated manifests + declared values, used by k8sApplyStep with relative manifests.
+# Paste into the unified service YAML editor. Replace every <YOUR_...> placeholder.
+# Paths are relative to the repo root of this test-test repo (push CDS-132156-repro/ first).
+service:
+  uses: kubernetes
+  with:
+    manifests:
+      sources:
+        - id: k8s_manifest
+          uses: k8s
+          with:
+            store:
+              uses: github
+              with:
+                connector: <YOUR_GIT_CONNECTOR>
+                type: branch
+                branch: <YOUR_BRANCH>
+                repo: <YOUR_REPO>
+                paths:
+                  - CDS-132156-repro/fixtures/k8s-apply-tpl
+            values:
+              - CDS-132156-repro/fixtures/values-apply.yaml

@@ -1,0 +1,29 @@
+# CDS-132156 -- same shape as the QA pipeline (k8sApplyStep with relative manifests). Expect: namespace.yaml/service.yaml resolve under the rendered manifest dir.
+pipeline:
+  clone:
+    enabled: false
+  id: cds132156_apply
+  name: cds132156_apply
+  stages:
+    - id: stage_1
+      name: stage 1
+      environment:
+        id: <YOUR_ENV>
+        deploy-to: <YOUR_INFRA>
+      service:
+        id: <YOUR_SERVICE_ID>
+        type: kubernetes
+      runtime:
+        cloud: {}
+      steps:
+        - id: apply_step
+          name: apply step
+          template:
+            uses: k8sApplyStep
+            with:
+              manifests:
+                - namespace.yaml
+                - service.yaml
+              skip_dry_run: false
+              skip_steady_state_check: true
+          timeout: 10m

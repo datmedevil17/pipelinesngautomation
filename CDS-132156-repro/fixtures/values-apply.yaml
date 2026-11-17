@@ -1,0 +1,12 @@
+name: cds132156
+namespace: cds132156-ns
+createNamespace: true
+replicas: 1
+image: nginx:1.25
+serviceType: ClusterIP
+servicePort: 80
+serviceTargetPort: 80
+dockercfg: ""
+env:
+  config: {}
+  secrets: {}
