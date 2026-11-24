@@ -1,0 +1,396 @@
+pipeline:
+  projectIdentifier: donotdelete_rajproject
+  orgIdentifier: default
+  tags:
+    Owner: CD
+  stages:
+    - stage:
+        name: Build and Zip automation repo
+        identifier: Build_and_Zip_automation_repo
+        template:
+          templateRef: build_and_Zip_Automation_Repo
+          versionLabel: v1
+          templateInputs:
+            type: CI
+            variables:
+              - name: skipBuild
+                type: String
+                value: <+input>.default(false).allowedValues(true,false)
+    - stage:
+        name: SetUp
+        identifier: setup
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              - step:
+                  name: Restore Automation repo
+                  identifier: Restore_Automation_repo
+                  template:
+                    templateRef: Restore_automation_repo
+                    versionLabel: v1
+              - step:
+                  type: Run
+                  name: Run Setup
+                  identifier: Run_Automation
+                  spec:
+                    connectorRef: <+variable.garConnectorPath>
+                    image: <+variable.garJavaImagePath>
+                    shell: Sh
+                    command: |-
+                      echo "Current shell:"
+                      ps -p $$
+
+                      testPriority="<+pipeline.variables.TestsPriority>"
+                      baseExclude="COMMUNITY_ONLY,nonSMP"
+                      exclusionGroups="$baseExclude"
+                      executionSuiteFile=cdpngSetup.xml
+
+                      echo "Current shell:"
+                      ps -p $$
+
+                      testPriority="<+pipeline.variables.TestsPriority>"
+                      baseExclude="COMMUNITY_ONLY,nonSMP"
+                      exclusionGroups="$baseExclude"
+
+                      username="<+pipeline.variables.Username>"
+                      password="<+pipeline.variables.Password>"
+                      encoded_string=$(printf %s "$username:$password" | iconv -t utf-8 | base64 ) 
+
+                      if [ "$testPriority" = "P0" ]
+                        then 
+                          exclusionGroups="$baseExclude,P1,P2,P3,P4"
+                      fi
+
+                      if [ "$testPriority" = "P1" ]
+                        then 
+                          exclusionGroups="$baseExclude,P2,P3,P4"
+                      fi
+
+                      if [ "$testPriority" = "P1_ONLY" ]
+                        then 
+                          exclusionGroups="$baseExclude,P0,P2,P3,P4"
+                      fi
+
+                      if [ "$testPriority" = "P2" ]
+                        then 
+                          exclusionGroups="$baseExclude,P3,P4"
+                      fi
+
+                      if [ "$testPriority" = "P3" ]
+                        then 
+                          exclusionGroups="$baseExclude,P4"
+                      fi
+
+                      if [ "<+matrix.groups.name>" = "CDPNGSmoke" ] || [ "$testPriority" = "setup" ]
+                        then 
+                          exclusionGroups="$baseExclude"
+                      fi
+
+
+                      export env_type=<+pipeline.variables.Environment>
+                      export project=<+pipeline.variables.Project>
+                      export groups=<+matrix.groups.name>
+                      export executionSuiteFiles=resources/cdpng/$executionSuiteFile
+                      export excludedGroups=$exclusionGroups
+                      export skipCDNGTest=false
+                      export testCycleKey=<+pipeline.variables.TestCycleKey>
+                      export jiraProjectKey=<+pipeline.variables.JiraProjectKey> 
+                      export maven_wagon_http_ssl_insecure=true 
+                      export maven_wagon_http_ssl_allowall=true
+                      export maven_wagon_http_ssl_ignore_validity_dates=true
+                      # Set up maven execution based on whether the infra is dynamic or not
+                      # mvnCommand=""
+                      echo "Exclusion groups: " $exclusionGroups
+                      # echo "Maven command to be executed: mvn $mvnCommand"
+
+                      if [ "<+pipeline.variables.Environment>" = "DYNAMIC_SMP" ]
+                        then
+                          export BASE_AUTH="$encoded_string"
+                          export USERNAME=<+pipeline.variables.Username>
+                          export BASE_URI=<+pipeline.variables.BaseUri> 
+                          cd CDNG 
+                          java -jar target/CDNG-1.0-SNAPSHOT-jar-with-dependencies.jar
+                        else
+                          cd CDNG 
+                          java -jar target/CDNG-1.0-SNAPSHOT-jar-with-dependencies.jar
+                      fi
+                    privileged: false
+                    reports:
+                      type: JUnit
+                      spec:
+                        paths:
+                          - CDNG/target/test-output/junitreports/*.xml
+                    resources:
+                      limits:
+                        memory: 2000Mi
+                        cpu: "0.3"
+                  timeout: 4h
+                  failureStrategies:
+                    - onFailure:
+                        errors:
+                          - AllErrors
+                        action:
+                          type: Retry
+                          spec:
+                            retryCount: 1
+                            retryIntervals:
+                              - 30s
+                            onRetryFailure:
+                              action:
+                                type: Ignore
+                  when:
+                    stageStatus: Success
+                    condition: <+pipeline.variables.isRerun>!=true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: cdcie
+              namespace: harness-delegate-ng
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+        when:
+          pipelineStatus: Success
+          condition: <+pipeline.variables.SetUp>==true
+        strategy:
+          matrix:
+            groups:
+              - name: setup
+        description: ""
+    - stage:
+        name: Serverless_RUN
+        identifier: Serverless_RUN
+        template:
+          templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+          versionLabel: cpu_optimised
+          templateInputs:
+            type: CI
+            when:
+              condition: <+pipeline.variables.Serverless>==true
+            strategy:
+              matrix:
+                groups:
+                  - name: Serverless2UnifiedGithubEcr
+                  - name: Serverless2UnifiedGithubEcrPluginInfo
+                  - name: Serverless2UnifiedGitRepoEcr
+                  - name: Serverless2UnifiedBitbucketEcr
+                  - name: Serverless2UnifiedGitlabS3
+                  - name: Serverless2UnifiedGithubS3
+                  - name: Serverless2UnifiedGithubArtifactory
+                  - name: Serverless2UnifiedGithubEcrLooping
+                  - name: Serverless2UnifiedS3Artifactory
+                  - name: Serverless2UnifiedGithubS3Values
+                  - name: Serverless2UnifiedGithubEcrLocalPlugin
+                  - name: Serverless2UnifiedGithubArtifactoryErrorPlugin
+                  - name: Serverless2UnifiedGithubArtifactoryDefaultStack
+                  - name: Serverless2MultiSvcMultiInfra
+                  - name: Serverless2UnifiedGithubArtifactoryCustomStack
+                  - name: Serverless2UnifiedRollbackGithubEcr
+                  - name: Serverless2UnifiedRollbackGithubEcrPlugin
+                  - name: Serverless2UnifiedServiceTypeGithubEcrRuntime
+                  - name: Serverless2UnifiedServiceTypeGithubEcrMalformed
+                  - name: ServerlessV4UnifiedGitArtifactoryJava21
+                  - name: ServerlessV4UnifiedGitEcrNodeJs22
+                  - name: ServerlessV4UnifiedGitArtifactoryCustomConfig
+                  - name: ServerlessV4UnifiedGitNoArtifact
+                  - name: Serverless2UnifiedAuthStsGithubEcr
+                  - name: Serverless2UnifiedAuthIamGithubEcr
+                  - name: Serverless2UnifiedAuthIrsaGithubArtifactory
+                  - name: Serverless2UnifiedAuthIrsaS3Artifactory
+                maxConcurrency: 4
+            variables:
+              - name: suitFile
+                type: String
+                value: Serverless2UnifiedSuite.xml
+              - name: Project
+                type: String
+                default: <+pipeline.variables.Project>
+                value: <+input>.default(<+pipeline.variables.Project>)
+  variables:
+    - name: TestsPriority
+      type: String
+      description: P0 runs only P0, P1 runs P0+P1, P2 runs P0 + P1 + P2, etc and P4 runs all (same as ALL)
+      required: false
+      value: <+input>.default(ALL).allowedValues(ALL,P0,P1,P2,P3,P4)
+    - name: TestCycleKey
+      type: String
+      description: Zephyr Test Cycle Key
+      required: false
+      value: <+input>
+    - name: Environment
+      type: String
+      required: true
+      value: <+input>.default(DYNAMIC_SMP).allowedValues(PRE_QA,QA,DYNAMIC_SMP)
+    - name: Project
+      type: String
+      description: For Static envs only (i.e. QA/PreQA)
+      value: <+input>.default(DYNAMIC_DXAUTH).allowedValues(NG_PREQA,NG_PIPELINES,DYNAMIC,HARNESS_DEV,DYNAMIC_DXAUTH)
+    - name: BaseUri
+      type: String
+      description: For Dynamic envs only (SMP, Devspaces, etc)
+      required: false
+      value: <+input>
+    - name: Username
+      type: String
+      description: For Dynamic envs only (SMP, Devspaces, etc)
+      required: false
+      value: <+input>
+    - name: Password
+      type: String
+      description: For Dynamic envs only (SMP, Devspaces, etc)
+      required: false
+      value: <+input>
+    - name: Namespace
+      type: String
+      description: For Dynamic envs only (SMP, Devspaces, etc).Only used for Notifications.
+      required: false
+      value: <+input>
+    - name: VersionCheck
+      type: String
+      description: Check Env Version
+      required: true
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: environment
+      type: String
+      description: ""
+      required: false
+      value: <+input>
+    - name: customEnvironmentBaseUrl
+      type: String
+      description: ""
+      required: false
+      value: <+input>
+    - name: customEnvironmentUsername
+      type: String
+      description: ""
+      required: false
+      value: <+input>
+    - name: customEnvironmentUserPassword
+      type: String
+      description: ""
+      required: false
+      value: <+input>
+    - name: using_trigger
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: JiraProjectKey
+      type: String
+      description: JIRA Project Key
+      required: true
+      value: CDS
+    - name: jiraID
+      type: String
+      default: ignore_in_manual_runs
+      value: <+input>
+    - name: channel_name
+      type: String
+      default: ignore_in_manual_runs
+      value: cd-unified-sanity-notifications
+    - name: isRerun
+      type: String
+      description: Set to true to run only tests failed in previous run
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: buildNumber
+      type: String
+      default: ignore
+      description: Used to execute only failed tests from previous run
+      value: <+input>
+    - name: SetUp
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(true).allowedValues(true,false)
+    - name: SmokeNotify
+      type: String
+      description: Smoke Notify to Slack
+      required: true
+      value: <+input>.default(true).allowedValues(true,false)
+    - name: SmokeTest
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(true).allowedValues(true,false)
+    - name: K8sUnified
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: Dashboards
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: NativeHelmUnified
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: GoogleCloudRun
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: Lambda
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: ECS
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: SAM
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: K8sHelmP0
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: PLG
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: Serverless
+      type: String
+      value: <+input>.default(true).allowedValues(true,false)
+    - name: azurePluginVersion
+      type: String
+      description: ""
+      required: false
+      value: <+input>
+    - name: NotifyFailures
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: TriggersUnified
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: GitXUnified
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: DeploymentFreezeUnified
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: CustomApprovals
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: HarnessApprovals
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: slack_channel
+      type: String
+      description: ""
+      required: false
+      value: cd-unified-sanity-notifications
+  allowStageExecutions: true
+  properties:
+    ci:
+      codebase:
+        connectorRef: Automation_Repo
+        build: <+input>
+        sparseCheckout: []
+  delegateSelectors:
+    - myrunner-qa-raj
+  timeout: 5h
+  identifier: cdcdpapiqaenvunified_serverless
+  name: cd-cdp-api-qa-env-unified-serverless

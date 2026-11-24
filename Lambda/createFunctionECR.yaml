@@ -1,0 +1,2 @@
+functionName: auto-lambda-ecr
+role: arn:aws:iam::479370281431:role/allu-lambda

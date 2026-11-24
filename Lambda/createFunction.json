@@ -1,0 +1,7 @@
+{
+    "runtime": "<+serviceVariables.runtime>",
+    "functionName": "<+serviceVariables.functionName>",
+    "handler": "handler.hello",
+    "role": "arn:aws:iam::479370281431:role/allu-lambda"
+ }
+ 

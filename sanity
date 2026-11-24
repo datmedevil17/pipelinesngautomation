@@ -1,0 +1,1378 @@
+pipeline:
+  projectIdentifier: Quality_Engineering
+  orgIdentifier: PROD
+  tags:
+    Owner: CD
+  stages:
+    - stage:
+        name: Build and Zip automation repo
+        identifier: Build_and_Zip_automation_repo
+        template:
+          templateRef: build_and_Zip_Automation_Repo
+          versionLabel: v1
+          templateInputs:
+            type: CI
+            variables:
+              - name: skipBuild
+                type: String
+                value: <+input>.default(false).allowedValues(true,false)
+    - stage:
+        name: SetUp
+        identifier: setup
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              - step:
+                  name: Restore Automation repo
+                  identifier: Restore_Automation_repo
+                  template:
+                    templateRef: Restore_automation_repo
+                    versionLabel: v1
+              - step:
+                  type: Run
+                  name: Run Setup
+                  identifier: Run_Automation
+                  spec:
+                    connectorRef: <+variable.garConnectorPath>
+                    image: <+variable.garJavaImagePath>
+                    shell: Sh
+                    command: |-
+                      echo "Current shell:"
+                      ps -p $$
+
+                      testPriority="<+pipeline.variables.TestsPriority>"
+                      baseExclude="COMMUNITY_ONLY,nonSMP"
+                      exclusionGroups="$baseExclude"
+                      executionSuiteFile=cdpngSetup.xml
+
+                      echo "Current shell:"
+                      ps -p $$
+
+                      testPriority="<+pipeline.variables.TestsPriority>"
+                      baseExclude="COMMUNITY_ONLY,nonSMP"
+                      exclusionGroups="$baseExclude"
+
+                      username="<+pipeline.variables.Username>"
+                      password="<+pipeline.variables.Password>"
+                      encoded_string=$(printf %s "$username:$password" | iconv -t utf-8 | base64 ) 
+
+                      if [ "$testPriority" = "P0" ]
+                        then 
+                          exclusionGroups="$baseExclude,P1,P2,P3,P4"
+                      fi
+
+                      if [ "$testPriority" = "P1" ]
+                        then 
+                          exclusionGroups="$baseExclude,P2,P3,P4"
+                      fi
+
+                      if [ "$testPriority" = "P1_ONLY" ]
+                        then 
+                          exclusionGroups="$baseExclude,P0,P2,P3,P4"
+                      fi
+
+                      if [ "$testPriority" = "P2" ]
+                        then 
+                          exclusionGroups="$baseExclude,P3,P4"
+                      fi
+
+                      if [ "$testPriority" = "P3" ]
+                        then 
+                          exclusionGroups="$baseExclude,P4"
+                      fi
+
+                      if [ "<+matrix.groups.name>" = "CDPNGSmoke" ] || [ "$testPriority" = "setup" ]
+                        then 
+                          exclusionGroups="$baseExclude"
+                      fi
+
+
+                      export env_type=<+pipeline.variables.Environment>
+                      export project=<+pipeline.variables.Project>
+                      export groups=<+matrix.groups.name>
+                      export executionSuiteFiles=resources/cdpng/$executionSuiteFile
+                      export excludedGroups=$exclusionGroups
+                      export skipCDNGTest=false
+                      export testCycleKey=<+pipeline.variables.TestCycleKey>
+                      export jiraProjectKey=<+pipeline.variables.JiraProjectKey> 
+                      export maven_wagon_http_ssl_insecure=true 
+                      export maven_wagon_http_ssl_allowall=true
+                      export maven_wagon_http_ssl_ignore_validity_dates=true
+                      # Set up maven execution based on whether the infra is dynamic or not
+                      # mvnCommand=""
+                      echo "Exclusion groups: " $exclusionGroups
+                      # echo "Maven command to be executed: mvn $mvnCommand"
+
+                      if [ "<+pipeline.variables.Environment>" = "DYNAMIC_SMP" ]
+                        then
+                          export BASE_AUTH="$encoded_string"
+                          export USERNAME=<+pipeline.variables.Username>
+                          export BASE_URI=<+pipeline.variables.BaseUri> 
+                          cd CDNG 
+                          java -jar target/CDNG-1.0-SNAPSHOT-jar-with-dependencies.jar
+                        else
+                          cd CDNG 
+                          java -jar target/CDNG-1.0-SNAPSHOT-jar-with-dependencies.jar
+                      fi
+                    privileged: false
+                    reports:
+                      type: JUnit
+                      spec:
+                        paths:
+                          - CDNG/target/test-output/junitreports/*.xml
+                    resources:
+                      limits:
+                        memory: 2000Mi
+                        cpu: "0.3"
+                  timeout: 4h
+                  failureStrategies:
+                    - onFailure:
+                        errors:
+                          - AllErrors
+                        action:
+                          type: Retry
+                          spec:
+                            retryCount: 1
+                            retryIntervals:
+                              - 30s
+                            onRetryFailure:
+                              action:
+                                type: Ignore
+                  when:
+                    stageStatus: Success
+                    condition: <+pipeline.variables.isRerun>!=true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: cdcie
+              namespace: harness-delegate-ng
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+        when:
+          pipelineStatus: Success
+          condition: <+pipeline.variables.SetUp>==true
+        strategy:
+          matrix:
+            groups:
+              - name: setup
+        description: ""
+    - stage:
+        name: SmokeTest
+        identifier: SmokeTest_Temp
+        template:
+          templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+          versionLabel: SmokeTest_cpu_optimised
+          templateInputs:
+            type: CI
+            when:
+              condition: <+pipeline.variables.SmokeTest>==true
+            strategy:
+              matrix:
+                groups:
+                  - name: CDPNGSmoke
+            variables:
+              - name: suitFile
+                type: String
+                value: cdpngSmokeTest.xml
+    - stage:
+        name: SmokeNotify
+        identifier: SmokeNotify
+        description: ""
+        type: Approval
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: ShellScript
+                  name: ShellScript_1
+                  identifier: ShellScript_1
+                  spec:
+                    shell: Bash
+                    source:
+                      type: Inline
+                      spec:
+                        script: |
+                          #!/bin/bash
+
+                          status="<+stage.variables.Status>"
+                          triggeredBy="<+pipeline.triggeredBy.name>"
+                          environment="<+pipeline.variables.Environment>"
+                          sequenceId="<+pipeline.sequenceId>"
+                          pipelineExecutionLink="<+pipeline.executionUrl>"
+                          slack_webhook_url="<+pipeline.variables.slack_cdp_ng_alert_webhook_url>"
+
+                          # Mention @Ritek using their user ID
+                          ritek_user_id="Ritek"
+
+                          if [ "$status" = "FAIL" ]; then
+                            message=":x: *CDP NG Smoke Test Failed* :x:\n\n"
+                            message+="<@U05K2ABVDHN>, this requires your attention!*\n"
+                            message+="*Triggered By:* $triggeredBy\n"
+                            message+="*Environment:* CDP NG $environment\n"
+                            message+="*Sequence ID:* $sequenceId\n"
+                            message+="*Details:* <$pipelineExecutionLink|View Execution Details>\n"
+                            icon_emoji=":harnesshd:"
+                          else
+                            message=":white_check_mark: *CDP NG Smoke Test Passed* :white_check_mark:\n\n"
+                            message+="<@U05K2ABVDHN>, great news!*\n"
+                            message+="*Triggered By:* $triggeredBy\n"
+                            message+="*Environment:* CDP NG $environment\n"
+                            message+="*Sequence ID:* $sequenceId\n"
+                            message+="*Details:* <$pipelineExecutionLink|View Execution Details>\n"
+                            icon_emoji=":harnesshd:"
+                          fi
+
+                          json_payload="{\"type\": \"mrkdwn\", \"text\": \"$message\", \"icon_emoji\": \"$icon_emoji\"}"
+
+                          echo "Slack Payload/Message:"
+                          echo "$json_payload"
+
+                          curl -X POST --data-urlencode "payload=$json_payload" "$slack_webhook_url"
+                    environmentVariables: []
+                    outputVariables: []
+                    executionTarget: {}
+                  timeout: 10m
+        tags: {}
+        when:
+          pipelineStatus: All
+          condition: <+pipeline.variables.SmokeNotify>==true
+        variables:
+          - name: StageName
+            type: String
+            description: ""
+            required: false
+            value: Smoke
+          - name: Status
+            type: String
+            description: ""
+            required: false
+            value: FAIL
+    - parallel:
+        - stage:
+            name: K8sUnified_RUN
+            identifier: K8sUnified_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.K8sUnified>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: K8sRollingUnified
+                      - name: K8sRollingStepValidationUnified
+                      - name: K8sRolling
+                      - name: K8sDeploymentOrderMultiDeployUnified
+                      - name: K8sServiceEnvFailureStrategyUnified
+                      - name: K8sCanaryUnified
+                      - name: K8sCanaryStepValidationUnified
+                      - name: K8sCanary
+                      - name: K8sDryRunScaleSteadyStateDeleteUnified
+                      - name: K8sBlueGreenUnified
+                      - name: K8sBlueGreenStepValidationUnified
+                      - name: K8sBlueGreen
+                      - name: K8sApplyUnified
+                      - name: K8sRolloutUnified
+                      - name: K8sRollbackStepValidationUnified
+                      - name: K8sBitBucketUnified
+                      - name: K8sGitLabUnified
+                      - name: K8sGKEUnified
+                      - name: K8sGkeStepValidationUnified
+                      - name: K8sEksStepValidationUnified
+                      - name: K8sHelmChartUnified
+                      - name: K8sMultiSvcEnv
+                      - name: K8sSidecarUnified
+                      - name: ExpressionK8sUnified
+                      - name: K8sBlueGreenPipelineRollbackUnified
+                      - name: K8sCanaryPipelineRollbackUnified
+                      - name: K8sK8sOptions
+                      - name: K8sReleaseFunctorUnified
+                      - name: K8sAksAuthPluginUnified
+                      - name: K8sAksBlueGreenUnified
+                      - name: K8sAksRollingRollbackUnified
+                      - name: K8sAksCanaryUnified
+                      - name: K8sFailureStrategyShellUnified
+                      - name: KustomizeK8sUnified
+                      - name: ConnectorValidatorCreationUnified
+                      - name: ConnectorValidatorCreationPlatformUnified
+                      - name: SyncTaskValidation
+                      - name: AwsArtifactApiPlatformUnified
+                      - name: AzureArtifactApiPlatformUnified
+                      - name: ArtifactoryArtifactApiPlatformUnified
+                      - name: DockerArtifactApiPlatformUnified
+                      - name: GcpConnectorApiPlatformUnified
+                      - name: OciHelmManifestApiPlatformUnified
+                      - name: JenkinsArtifactApiUnified
+                      - name: K8sNexus3Unified
+                      - name: K8sAcrCanaryUnified
+                      - name: K8sDiffStepUnified
+                      - name: K8sDryRunScaleSteadyStateUnified
+                      - name: K8sRollingDelete
+                      - name: K8sSingleSvcMultiInfra
+                      - name: K8sRancherPruningUnified
+                      - name: K8sRancherStepsUnified
+                      - name: K8sSkipAddingTrackSelector
+                      - name: K8sSkipVersioningUnified
+                      - name: K8sRollingStepPruningUnified
+                      - name: KustomizeK8sRollingUnifiedTest
+                      - name: KustomizeK8sRollingGitHubRepoHttpUnifiedTest
+                      - name: KustomizeK8sCanaryUnifiedTest
+                      - name: KustomizeK8sPatchesUnifiedTest
+                      - name: K8sAksGeneralUnified
+                      - name: KustomizeK8sBlueGreenUnifiedTest
+                      - name: KustomizeK8sCanaryBitBucketAccHttpUnifiedTest
+                      - name: K8sSingleSvcEnvGroup
+                      - name: K8sValuesOverrideUnified
+                      - name: RancherListClustersApiUnified
+                      - name: K8sOpenShiftRollingNoArtifactUnified
+                      - name: K8sOpenShiftCanaryNoArtifactUnified
+                      - name: K8sOpenShiftRollingParamsOverrideUnified
+                      - name: K8sOpenShiftRollingGCRUnified
+                      - name: K8sOpenShiftCanaryGCRUnified
+                      - name: K8sOpenShiftBlueGreenECRUnified
+                      - name: K8sOpenShiftCanaryECRUnified
+                      - name: K8sOpenShiftRollingDockerUnified
+                      - name: K8sOpenShiftCanaryDockerUnified
+                      - name: K8sOpenShiftRollingGPRUnified
+                      - name: K8sOpenShiftCanaryGPRUnified
+                      - name: K8sOpenShiftCanaryNexus3Unified
+                      - name: K8sOpenShiftBlueGreenACRUnified
+                      - name: K8sMultiSvcMultiInfra
+                      - name: K8sServiceTypeForm
+                      - name: K8sSingleSvcInfraPipelineRollbackUnifiedTest
+                      - name: K8sEnvGroupMatrixPipelineRollbackUnifiedTest
+                      - name: GitGithubDockerGarRuntimeInput
+                      - name: GithubBitbucketGarEcrRuntimeInput
+                      - name: BitbucketGitlabEcrGcrRuntimeInput
+                      - name: GitlabGitGcrAcrRuntimeInput
+                      - name: GitGithubAcrNexus3RuntimeInput
+                      - name: GithubBitbucketNexus3GprRuntimeInput
+                      - name: BitbucketGitlabGprDockerRuntimeInput
+                      - name: HelmChartGitRuntimeInput
+                      - name: HelmChartHttpRuntimeInput
+                      - name: HelmChartS3RuntimeInput
+                      - name: HelmChartGcsRuntimeInput
+                      - name: HelmChartOciRuntimeInput
+                      - name: KustomizeGitRuntimeInput
+                      - name: KustomizeGithubRuntimeInput
+                      - name: OpenshiftGitRuntimeInput
+                      - name: OpenshiftBitbucketRuntimeInput
+                      - name: OpenshiftGitlabRuntimeInput
+                      - name: KubernetesDirectRuntimeInput
+                      - name: GkeRuntimeInput
+                      - name: EksRuntimeInput
+                      - name: AksRuntimeInput
+                      - name: K8sCustomArtifactUnified
+                      - name: RancherRuntimeInput
+                      - name: K8sServiceHooksUnified
+                      - name: K8sTrafficShiftIstioUnified
+                      - name: K8sTrafficShiftIstioReferenceUnified
+                      - name: K8sTrafficShiftK8sNativeUnified
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: K8sUnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: NativeHelmUnified_RUN
+            identifier: NativeHelmUnified_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.NativeHelmUnified>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: NativeHelmV4GitHubGARUnified
+                      - name: NativeHelmTemplateStepsUnified
+                      - name: NativeHelmCustomRemoteUnified
+                      - name: NativeHelmServiceEnvFailureStrategyUnified
+                      - name: NativeHelmDeploymentOrderMultiDeployUnified
+                      - name: NativeHelmSteadyStateCheckUnified
+                      - name: NativeHelmFailureStrategyUnified
+                      - name: NativeHelmIstioUnified
+                      - name: NativeHelmEKSUnified
+                      - name: NativeHelmServiceCreationFlowsUnified
+                      - name: NativeHelmCanary
+                      - name: NativeHelmCanaryRollbackUnified
+                      - name: NativeHelmBlueGreen
+                      - name: NativeHelmFailureStrategyShellUnified
+                      - name: NativeHelmBlueGreenRollbackUnified
+                      - name: NativeHelmCrdSupportUnified
+                      - name: NativeHelmBasicStrategy
+                      - name: NativeHelmBasicStep
+                      - name: NativeHelmLoopingStrategyUnified
+                      - name: NativeHelmValuesOverrideUnified
+                      - name: NativeHelmGKEUnified
+                      - name: NativeHelmBasicConditionalExecution
+                      - name: NativeHelmRancherUnified
+                      - name: NativeHelmIgnoreReleaseHistoryUnified
+                      - name: NativeHelmBlueGreenPipelineRollbackUnified
+                      - name: NativeHelmCanaryPipelineRollbackUnified
+                      - name: NativeHelmHelmOptions
+                      - name: NativeHelmAksAuthPluginUnified
+                      - name: NativeHelmAksDeploymentUnified
+                      - name: NativeHelmLatestChartVersionUnified
+                      - name: NativeHelmCmdFlagsUnified
+                      - name: NativeHelmAzureRepoUnified
+                      - name: NativeHelmErrorScenarioUnified
+                      - name: NativeHelmInclusterDelegateUnified
+                      - name: NativeHelmAksStepsUnified
+                      - name: NativeHelmScopingInfraDefUnified
+                      - name: NativeHelmResourceConstraintUnified
+                      - name: NativeHelmMultiSvcMultiInfra
+                      - name: NativeHelmServiceTypeForm
+                      - name: NativeHelmInfraTypeRuntimeInputMatrixUnified
+                      - name: NativeHelmRuntimeInputMatrixUnified
+                      - name: NativeHelmSingleSvcInfraPipelineRollbackUnifiedTest
+                      - name: NativeHelmEnvGroupMatrixPipelineRollbackUnifiedTest
+                      - name: ExpressionHelmRollingUnified
+                      - name: NativeHelmServiceHooksUnified
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: NativeHelmUnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: GitXUnified_RUN
+            identifier: GitXUnified_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.GitXUnified>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: gitx_cd
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: CdUnifiedPlatformFeaturesSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: TriggersUnified_RUN
+            identifier: TriggersUnified_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.TriggersUnified>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: TriggerWebhookCustom
+                      - name: TriggerWebhookGithub
+                      - name: TriggerWebhookGitlab
+                      - name: TriggerWebhookBitbucket
+                      - name: TriggerWebhookEventBridge
+                      - name: TriggerWebhookHmac
+                      - name: TriggerWebhookGitXRemote
+                      - name: TriggerInputSetRef
+                      - name: TriggerDashboard
+                      - name: TriggerServiceEnvInfraExpression
+                      - name: TriggerArtifactSource
+                      - name: TriggerArtifactAzure
+                      - name: TriggerArtifactStorage
+                      - name: TriggerArtifactBuildServer
+                      - name: TriggerArtifactNexus2Ami
+                      - name: TriggerArtifactDocker
+                      - name: TriggerArtifactDockerMultiRegionCondition
+                      - name: TriggerArtifactCustom
+                      - name: TriggerManifest
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: CdUnifiedPlatformFeaturesSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: K8sHelmP0_RUN
+            identifier: K8sHelmP0_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.K8sHelmP0>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: NativeHelmBasicStep
+                      - name: NativeHelmCanary
+                      - name: NativeHelmBlueGreen
+                      - name: K8sRolling
+                      - name: K8sCanary
+                      - name: K8sBlueGreen
+                      - name: AwsSamP0Static
+                      - name: GoogleCloudRunP0Static
+                      - name: AwsLambdaP0Static
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: K8sandHelmP0UnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: PLG_RUN
+            identifier: PLG_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.PLG>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: K8sGarPublicPlgOnboarding_P0Static_UnifiedTest
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: PLG.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: Serverless_RUN
+            identifier: Serverless_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.Serverless>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: Serverless2UnifiedGithubEcr
+                      - name: Serverless2UnifiedGithubEcrPluginInfo
+                      - name: Serverless2UnifiedGitRepoEcr
+                      - name: Serverless2UnifiedBitbucketEcr
+                      - name: Serverless2UnifiedGitlabS3
+                      - name: Serverless2UnifiedGithubS3
+                      - name: Serverless2UnifiedGithubArtifactory
+                      - name: Serverless2UnifiedGithubEcrLooping
+                      - name: Serverless2UnifiedS3Artifactory
+                      - name: Serverless2UnifiedGithubS3Values
+                      - name: Serverless2UnifiedGithubEcrLocalPlugin
+                      - name: Serverless2UnifiedGithubArtifactoryErrorPlugin
+                      - name: Serverless2UnifiedGithubArtifactoryDefaultStack
+                      - name: Serverless2MultiSvcMultiInfra
+                      - name: Serverless2UnifiedGithubArtifactoryCustomStack
+                      - name: Serverless2UnifiedRollbackGithubEcr
+                      - name: Serverless2UnifiedRollbackGithubEcrPlugin
+                      - name: Serverless2UnifiedServiceTypeGithubEcrRuntime
+                      - name: Serverless2UnifiedServiceTypeGithubEcrMalformed
+                      - name: ServerlessV4UnifiedGitArtifactoryJava21
+                      - name: ServerlessV4UnifiedGitEcrNodeJs22
+                      - name: ServerlessV4UnifiedGitArtifactoryCustomConfig
+                      - name: ServerlessV4UnifiedGitNoArtifact
+                      - name: Serverless2UnifiedAuthStsGithubEcr
+                      - name: Serverless2UnifiedAuthIamGithubEcr
+                      - name: Serverless2UnifiedAuthIrsaGithubArtifactory
+                      - name: Serverless2UnifiedAuthIrsaS3Artifactory
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: Serverless2UnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: ECS_RUN
+            identifier: ECS_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.ECS>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: AwsEcsUnifiedBasicResizeNewFirst
+                      - name: AwsEcsUnifiedBasicDownsizeOldFirst
+                      - name: AwsEcsUnifiedBasicPercentage
+                      - name: AwsEcsUnifiedBasicCount
+                      - name: AwsEcsUnifiedBasicRollback
+                      - name: AwsEcsUnifiedBlueGreenSwap
+                      - name: AwsEcsUnifiedBlueGreenTrafficShift
+                      - name: AwsEcsUnifiedCanaryGithubEcr
+                      - name: AwsEcsUnifiedCanaryTaskDefArn
+                      - name: AwsEcsUnifiedCanaryRollback
+                      - name: AwsEcsMultiSvcMultiInfraRuntime
+                      - name: AwsEcsUnifiedRollingJsonManifest
+                      - name: AwsEcsUnifiedRollingMultiSvcInfra
+                      - name: AwsEcsUnifiedRollingMultiSvcEnv
+                      - name: AwsEcsUnifiedRollingGithubEcr
+                      - name: AwsEcsUnifiedRollingGitDocker
+                      - name: AwsEcsUnifiedRollingS3Ecr
+                      - name: AwsEcsUnifiedRollingRollback
+                      - name: AwsEcsUnifiedRollingSidecar
+                      - name: AwsEcsUnifiedRollingGithubApp
+                      - name: AwsEcsUnifiedRollingUnhealthy
+                      - name: AwsEcsUnifiedRollingSkipScaling
+                      - name: AwsEcsUnifiedScaleCount
+                      - name: AwsEcsUnifiedScalePercentage
+                      - name: AwsEcsUnifiedRunTaskAfterRolling
+                      - name: AwsEcsUnifiedRunTaskArnSkipSteady
+                      - name: AwsEcsUnifiedRunTaskArnSteadyState
+                      - name: AwsEcsUnifiedRunTaskInvalidArn
+                      - name: AwsEcsUnifiedRunTaskSteadyTimeout
+                      - name: AwsEcsUnifiedRunTaskArnRuntime
+                      - name: AwsEcsUnifiedRollingGithubAcr
+                      - name: AwsEcsUnifiedCanaryGitLabNexus3
+                      - name: AwsEcsUnifiedBlueGreenRollback
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: AwsEcsUnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: Lambda_RUN
+            identifier: Lambda_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.Lambda>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: AwsLambdaUnifiedCanary
+                      - name: AwsLambdaUnifiedRolling
+                      - name: AwsLambdaUnifiedRollback
+                      - name: AwsLambdaMultiSvcMultiInfra
+                      - name: AwsLambdaServiceTypeForm
+                      - name: AwsLambdaRuntimeInputMatrixUnified
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: AwsLambdaUnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: SAM_RUN
+            identifier: SAM_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.SAM>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: AwsSamUnifiedGithubManifest
+                      - name: AwsSamUnifiedGitManifest
+                      - name: AwsSamUnifiedBitbucketManifest
+                      - name: AwsSamUnifiedGitlabManifest
+                      - name: AwsSamUnifiedS3Manifest
+                      - name: AwsSamUnifiedLoopingStrategyMultiInfra
+                      - name: AwsSamUnifiedAuthStsConnector
+                      - name: AwsSamUnifiedAuthIamRole
+                      - name: AwsSamUnifiedAuthIrsa
+                      - name: AwsSamUnifiedAuthIrsaS3Manifest
+                      - name: AwsSamServiceTypeForm
+                      - name: AwsSamRuntimeInputUnified
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: AwsSamUnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: GCR_RUN
+            identifier: GCR_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.GoogleCloudRun>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: GoogleCloudRunGitBasicServiceAccountRollback
+                      - name: GoogleCloudRunGithubInheritFromDelegate
+                      - name: GoogleCloudRunMultiSvcMultiInfra
+                      - name: GoogleCloudRunGitBlankImage
+                      - name: GoogleCloudRunGitlabJob
+                      - name: GoogleCloudRunBitbucketCanaryTrafficShift
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: GoogleCloudRunUnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: GCF_RUN
+            identifier: GCF_RUN
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.GoogleCloudRun>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: GoogleCloudFunctionUnifiedBasicGithub
+                      - name: GoogleCloudFunctionUnifiedCanary
+                      - name: GoogleCloudFunctionMultiSvcMultiInfra
+                      - name: GoogleCloudFunctionUnifiedBlueGreen
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: GoogleCloudFunctionUnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: Custom Approvals
+            identifier: Approvals
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.CustomApprovals>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: Approvals
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: CustomApprovalUnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: Dashboards
+            identifier: Dashboards
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.Dashboards>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: unifieddashboardcleanup
+                      - name: UnifiedDashboard
+                      - name: UnifiedKubernetesDashboard
+                      - name: UnifiedNativeHelmDashboard
+                      - name: UnifiedGoogleCloudRunDashboard
+                      - name: UnifiedLambdaDashboard
+                      - name: UnifiedServerlessDashboard
+                      - name: UnifiedAwsSamDashboard
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: UnifiedDashboardSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+        - stage:
+            name: HarnessApprovals
+            identifier: HarnessApprovals
+            template:
+              templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+              versionLabel: cpu_optimised
+              templateInputs:
+                type: CI
+                when:
+                  condition: <+pipeline.variables.HarnessApprovals>==true
+                strategy:
+                  matrix:
+                    groups:
+                      - name: Approvals
+                variables:
+                  - name: suitFile
+                    type: String
+                    value: HarnessApprovalUnifiedSuite.xml
+                  - name: Project
+                    type: String
+                    default: <+pipeline.variables.Project>
+                    value: <+input>.default(<+pipeline.variables.Project>)
+    - stage:
+        name: DeploymentFreezeUnified_RUN
+        identifier: DeploymentFreezeUnified_RUN
+        template:
+          templateRef: CDP_NG_AUTOMATION_EXPERIMENTAL
+          versionLabel: cpu_optimised
+          templateInputs:
+            type: CI
+            when:
+              condition: <+pipeline.variables.DeploymentFreezeUnified>==true
+            strategy:
+              matrix:
+                groups:
+                  - name: DeploymentFreeze
+            variables:
+              - name: suitFile
+                type: String
+                value: CdUnifiedPlatformFeaturesSuite.xml
+              - name: Project
+                type: String
+                default: <+pipeline.variables.Project>
+                value: <+input>.default(<+pipeline.variables.Project>)
+    - stage:
+        name: Send Pass Notification
+        identifier: Send_Pass_Notification
+        description: ""
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: ShellScript
+                  name: Send Pass Notification
+                  identifier: Send_Pass_Notification
+                  spec:
+                    shell: Bash
+                    executionTarget: {}
+                    source:
+                      type: Inline
+                      spec:
+                        script: |
+
+                          #!/bin/bash
+
+                          set -o pipefail
+
+                          # --------------------------------------------------
+                          # Harness variables
+                          # --------------------------------------------------
+
+                          environment="<+pipeline.variables.Environment>"
+                          status="<+stage.variables.Status>"
+                          pipelineExecutionLink="<+pipeline.executionUrl>"
+
+                          slack_channel="<+pipeline.variables.slack_channel>"
+
+                          echo "Environment: $environment"
+                          echo "Status: $status"
+                          echo "Slack Channel: $slack_channel"
+
+                          # --------------------------------------------------
+                          # Validate Slack channel
+                          # --------------------------------------------------
+
+                          if [ -z "$slack_channel" ] || [ "$slack_channel" = "null" ]; then
+                              echo "ERROR: Slack channel is empty."
+                              exit 1
+                          fi
+
+                          slack_channel=$(printf '%s' "$slack_channel" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+                          if [ "${slack_channel#\#}" = "$slack_channel" ]; then
+                              slack_channel="#$slack_channel"
+                          fi
+
+                          # --------------------------------------------------
+                          # Install jq if required
+                          # --------------------------------------------------
+
+                          if ! command -v jq >/dev/null 2>&1; then
+                              echo "Installing jq..."
+
+                              if command -v microdnf >/dev/null 2>&1; then
+                                  microdnf install -y jq
+                              elif command -v yum >/dev/null 2>&1; then
+                                  yum install -y jq
+                              else
+                                  echo "ERROR: jq is not installed."
+                                  exit 1
+                              fi
+                          fi
+
+                          # --------------------------------------------------
+                          # Determine notification status
+                          # --------------------------------------------------
+
+                          case "$(printf '%s' "$status" | tr '[:lower:]' '[:upper:]')" in
+
+                              PASS|SUCCESS)
+                                  status_text="*Pipeline Status:* :white_check_mark: *PASSED*"
+                                  echo "Preparing PASS notification..."
+                                  ;;
+
+                              FAIL|FAILED)
+                                  status_text="*Pipeline Status:* :x: *FAILED*"
+                                  echo "Preparing FAIL notification..."
+                                  ;;
+
+                              *)
+                                  echo "ERROR: Unknown stage status: $status"
+                                  exit 1
+                                  ;;
+                          esac
+
+                          # --------------------------------------------------
+                          # Prepare Slack message
+                          # --------------------------------------------------
+
+                          slack_text=$(printf '%s\n' \
+                              "$status_text" \
+                              "<${pipelineExecutionLink}|ExecutionLink>" \
+                              "" \
+                              "*cc:* <@U0ALVSDGK44> <@U0BC7CVMJSD> <@U09NCBKPUDD> <@U038TE720QL> <@U014BFQ9PJS> <@U0422M3S85V>")
+
+                          # --------------------------------------------------
+                          # Construct Slack JSON payload
+                          # --------------------------------------------------
+
+                          slack_body=$(jq -n \
+                              --arg channel "$slack_channel" \
+                              --arg text "$slack_text" \
+                              '{
+                                  channel: $channel,
+                                  text: $text,
+                                  mrkdwn: true
+                              }')
+
+                          if [ -z "$slack_body" ]; then
+                              echo "ERROR: Failed to construct Slack payload."
+                              exit 1
+                          fi
+
+                          # --------------------------------------------------
+                          # Send Slack notification through Raven
+                          # --------------------------------------------------
+
+                          echo "Sending Slack notification..."
+
+                          slack_resp=$(curl -sS -X POST \
+                              'https://slack.com/api/chat.postMessage' \
+                              -H 'Authorization: Bearer <+secrets.getValue("e2e_slack_bot_token")>' \
+                              -H 'Content-Type: application/json; charset=utf-8' \
+                              --data "$slack_body")
+
+                          echo "Slack API response:"
+                          echo "$slack_resp"
+
+                          # --------------------------------------------------
+                          # Validate Slack response
+                          # --------------------------------------------------
+
+                          if ! printf '%s' "$slack_resp" | jq -e '.ok == true' >/dev/null 2>&1; then
+                              echo "ERROR: Slack notification failed."
+                              echo "$slack_resp"
+                              exit 1
+                          fi
+
+                          echo "Slack notification sent successfully."
+                          echo "Script execution completed."
+                    environmentVariables: []
+                    outputVariables: []
+                  timeout: 10m
+        tags: {}
+        when:
+          pipelineStatus: Success
+          condition: <+pipeline.variables.NotifyFailures>==true
+        variables:
+          - name: Status
+            type: String
+            description: ""
+            required: false
+            value: PASS
+    - stage:
+        name: Send Failed Stages Notification
+        identifier: Send_Failed_Stages_Notification
+        description: ""
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: ShellScript
+                  name: Send Failed Stages Notification
+                  identifier: Send_Failed_Stages_Notification
+                  spec:
+                    shell: Bash
+                    executionTarget: {}
+                    source:
+                      type: Inline
+                      spec:
+                        script: |
+
+                          #!/bin/bash
+
+                          set -o pipefail
+
+                          # --------------------------------------------------
+                          # Harness variables
+                          # --------------------------------------------------
+
+                          environment="<+pipeline.variables.Environment>"
+                          status="<+stage.variables.Status>"
+                          pipelineExecutionLink="<+pipeline.executionUrl>"
+
+                          slack_channel="<+pipeline.variables.slack_channel>"
+
+                          echo "Environment: $environment"
+                          echo "Status: $status"
+                          echo "Slack Channel: $slack_channel"
+
+                          # --------------------------------------------------
+                          # Validate Slack channel
+                          # --------------------------------------------------
+
+                          if [ -z "$slack_channel" ] || [ "$slack_channel" = "null" ]; then
+                              echo "ERROR: Slack channel is empty."
+                              exit 1
+                          fi
+
+                          slack_channel=$(printf '%s' "$slack_channel" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+                          if [ "${slack_channel#\#}" = "$slack_channel" ]; then
+                              slack_channel="#$slack_channel"
+                          fi
+
+                          # --------------------------------------------------
+                          # Install jq if required
+                          # --------------------------------------------------
+
+                          if ! command -v jq >/dev/null 2>&1; then
+                              echo "Installing jq..."
+
+                              if command -v microdnf >/dev/null 2>&1; then
+                                  microdnf install -y jq
+                              elif command -v yum >/dev/null 2>&1; then
+                                  yum install -y jq
+                              else
+                                  echo "ERROR: jq is not installed."
+                                  exit 1
+                              fi
+                          fi
+
+                          # --------------------------------------------------
+                          # Determine notification status
+                          # --------------------------------------------------
+
+                          case "$(printf '%s' "$status" | tr '[:lower:]' '[:upper:]')" in
+
+                              PASS|SUCCESS)
+                                  status_text="*Pipeline Status:* :white_check_mark: *PASSED*"
+                                  echo "Preparing PASS notification..."
+                                  ;;
+
+                              FAIL|FAILED)
+                                  status_text="*Pipeline Status:* :x: *FAILED*"
+                                  echo "Preparing FAIL notification..."
+                                  ;;
+
+                              *)
+                                  echo "ERROR: Unknown stage status: $status"
+                                  exit 1
+                                  ;;
+                          esac
+
+                          # --------------------------------------------------
+                          # Prepare Slack message
+                          # --------------------------------------------------
+
+                          slack_text=$(printf '%s\n' \
+                              "$status_text" \
+                              "<${pipelineExecutionLink}|ExecutionLink>" \
+                              "" \
+                              "*cc:* <@U0ALVSDGK44> <@U0BC7CVMJSD> <@U09NCBKPUDD> <@U038TE720QL> <@U014BFQ9PJS> <@U0422M3S85V>")
+
+                          # --------------------------------------------------
+                          # Construct Slack JSON payload
+                          # --------------------------------------------------
+
+                          slack_body=$(jq -n \
+                              --arg channel "$slack_channel" \
+                              --arg text "$slack_text" \
+                              '{
+                                  channel: $channel,
+                                  text: $text,
+                                  mrkdwn: true
+                              }')
+
+                          if [ -z "$slack_body" ]; then
+                              echo "ERROR: Failed to construct Slack payload."
+                              exit 1
+                          fi
+
+                          # --------------------------------------------------
+                          # Send Slack notification through Raven
+                          # --------------------------------------------------
+
+                          echo "Sending Slack notification..."
+
+                          slack_resp=$(curl -sS -X POST \
+                              'https://slack.com/api/chat.postMessage' \
+                              -H 'Authorization: Bearer <+secrets.getValue("e2e_slack_bot_token")>' \
+                              -H 'Content-Type: application/json; charset=utf-8' \
+                              --data "$slack_body")
+
+                          echo "Slack API response:"
+                          echo "$slack_resp"
+
+                          # --------------------------------------------------
+                          # Validate Slack response
+                          # --------------------------------------------------
+
+                          if ! printf '%s' "$slack_resp" | jq -e '.ok == true' >/dev/null 2>&1; then
+                              echo "ERROR: Slack notification failed."
+                              echo "$slack_resp"
+                              exit 1
+                          fi
+
+                          echo "Slack notification sent successfully."
+                          echo "Script execution completed."
+                    environmentVariables: []
+                    outputVariables: []
+                  timeout: 10m
+        tags: {}
+        when:
+          pipelineStatus: Failure
+          condition: <+pipeline.variables.NotifyFailures>==true
+        variables:
+          - name: Status
+            type: String
+            description: ""
+            required: false
+            value: FAIL
+  variables:
+    - name: TestsPriority
+      type: String
+      description: P0 runs only P0, P1 runs P0+P1, P2 runs P0 + P1 + P2, etc and P4 runs all (same as ALL)
+      required: false
+      value: <+input>.default(ALL).allowedValues(ALL,P0,P1,P2,P3,P4)
+    - name: TestCycleKey
+      type: String
+      description: Zephyr Test Cycle Key
+      required: false
+      value: <+input>
+    - name: Environment
+      type: String
+      required: true
+      value: <+input>.default(DYNAMIC_SMP).allowedValues(PRE_QA,QA,DYNAMIC_SMP)
+    - name: Project
+      type: String
+      description: For Static envs only (i.e. QA/PreQA)
+      value: <+input>.default(DYNAMIC_DXAUTH).allowedValues(NG_PREQA,NG_PIPELINES,DYNAMIC,HARNESS_DEV,DYNAMIC_DXAUTH)
+    - name: BaseUri
+      type: String
+      description: For Dynamic envs only (SMP, Devspaces, etc)
+      required: false
+      value: <+input>
+    - name: Username
+      type: String
+      description: For Dynamic envs only (SMP, Devspaces, etc)
+      required: false
+      value: <+input>
+    - name: Password
+      type: String
+      description: For Dynamic envs only (SMP, Devspaces, etc)
+      required: false
+      value: <+input>
+    - name: Namespace
+      type: String
+      description: For Dynamic envs only (SMP, Devspaces, etc).Only used for Notifications.
+      required: false
+      value: <+input>
+    - name: VersionCheck
+      type: String
+      description: Check Env Version
+      required: true
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: environment
+      type: String
+      description: ""
+      required: false
+      value: <+input>
+    - name: customEnvironmentBaseUrl
+      type: String
+      description: ""
+      required: false
+      value: <+input>
+    - name: customEnvironmentUsername
+      type: String
+      description: ""
+      required: false
+      value: <+input>
+    - name: customEnvironmentUserPassword
+      type: String
+      description: ""
+      required: false
+      value: <+input>
+    - name: using_trigger
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: JiraProjectKey
+      type: String
+      description: JIRA Project Key
+      required: true
+      value: CDS
+    - name: jiraID
+      type: String
+      default: ignore_in_manual_runs
+      value: <+input>
+    - name: channel_name
+      type: String
+      default: ignore_in_manual_runs
+      value: cd-unified-sanity-notifications
+    - name: isRerun
+      type: String
+      description: Set to true to run only tests failed in previous run
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: buildNumber
+      type: String
+      default: ignore
+      description: Used to execute only failed tests from previous run
+      value: <+input>
+    - name: SetUp
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(true).allowedValues(true,false)
+    - name: SmokeNotify
+      type: String
+      description: Smoke Notify to Slack
+      required: true
+      value: <+input>.default(true).allowedValues(true,false)
+    - name: SmokeTest
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(true).allowedValues(true,false)
+    - name: K8sUnified
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: Dashboards
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: NativeHelmUnified
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: GoogleCloudRun
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: Lambda
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: ECS
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: SAM
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: K8sHelmP0
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: PLG
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: Serverless
+      type: String
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: slack_cdp_ng_alert_webhook_url
+      type: Secret
+      description: ""
+      required: false
+      value: slack_cdp_ng_alert
+    - name: NotifyFailures
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).allowedValues(true,false)
+    - name: TriggersUnified
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: GitXUnified
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: DeploymentFreezeUnified
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: CustomApprovals
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: HarnessApprovals
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: slack_channel
+      type: String
+      description: ""
+      required: false
+      value: cd-unified-sanity-notifications
+  allowStageExecutions: true
+  properties:
+    ci:
+      codebase:
+        connectorRef: Automation_Repo
+        build: <+input>
+        sparseCheckout: []
+  delegateSelectors:
+    - cd-cie-quality-engineering-harness0-del
+  timeout: 5h
+  identifier: cdcdpapiqaenvunified
+  name: cd-cdp-api-qa-env-unified

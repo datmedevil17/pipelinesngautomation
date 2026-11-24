@@ -1,0 +1,29 @@
+# CDS-132173 -- Generic OCI helm service (mirrors NativeHelmGARTest). manifest id = ociManifest
+service:
+  name: svc_cds132173_ok
+  identifier: svc_cds132173_ok
+  orgIdentifier: organization_org_a818
+  projectIdentifier: project_proj_b28b
+  serviceDefinition:
+    type: NativeHelm
+    spec:
+      manifests:
+        - manifest:
+            identifier: ociManifest
+            type: HelmChart
+            spec:
+              store:
+                type: OciHelmChart
+                spec:
+                  config:
+                    type: Generic
+                    spec:
+                      connectorRef: oci_local_connector
+                  basePath: bitnamicharts
+              chartName: nginx
+              chartVersion: 25.2.15
+              helmVersion: V3
+              skipResourceVersioning: false
+              enableDeclarativeRollback: false
+              fetchHelmChartMetadata: false
+  gitOpsEnabled: false

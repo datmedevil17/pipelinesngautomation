@@ -1,0 +1,23 @@
+# CDS-132173 -- v1 pipeline over v0 service svc_cds132173_ok (manifest id ociManifest).
+pipeline:
+  name: pipeline_cds132173_ok
+  stages:
+    - id: deploy_stage
+      name: helm deploy
+      environment:
+        items:
+          - id: environment_env_2a02
+            deploy-to: infrastructure_kubernetes_5a5e
+      service:
+        items:
+          - svc_cds132173_ok
+      runtime: shell
+      steps:
+        - id: deploy
+          name: Helm Deploy
+          template:
+            uses: helmBasicDeployStep
+          timeout: 10m
+      platform:
+        os: macos
+        arch: arm64
